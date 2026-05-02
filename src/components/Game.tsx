@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -27,12 +28,20 @@ import {
   resolveMidGameChallengeReward,
   type MidGameChallengeStep,
 } from "@/lib/challenges";
+import {
+  buildDaily20DeckNumbers,
+  getUtcDateKey,
+  pickDailyBonusZs,
+} from "@/lib/dailyDeck";
 import { zPlacementWindow } from "@/lib/placementHint";
 import { computeScore, nextStreak } from "@/lib/scoring";
 import { ElementCard } from "./ElementCard";
 import { Hand } from "./Hand";
 import { HUD } from "./HUD";
-import { ModePicker } from "./ModePicker";
+import { DailyAlreadyPlayedModal } from "./DailyAlreadyPlayedModal";
+import { ModePicker, type LeaderboardEntry } from "./ModePicker";
+import { PreRoundCountdown, getPreRoundStepCount, preRoundDurationMsForStep } from "./PreRoundCountdown";
+import { SubmitInitialsModal } from "./SubmitInitialsModal";
 import { PeriodicTable, PLACEMENT_OVERLAY_TOTAL_MS, SCORE_OVERLAY_COUNT_MS, SCORE_OVERLAY_FADE_MS, SCORE_OVERLAY_HOLD_MS, type PlacementInfo } from "./PeriodicTable";
 import { ViewportFitScale } from "./ViewportFitScale";
 import { ChallengeModal } from "./ChallengeModal";
@@ -173,15 +182,18 @@ function formatTimeMmSs(totalSec: number): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
-function buildDeck(mode: Mode): number[] {
-  const allZs = ELEMENTS.map((el) => el.z);
-  const shuffled = shuffle(allZs);
-  return mode === "daily20" ? shuffled.slice(0, QUICK_DECK_SIZE) : shuffled;
+function pickBonusZsFromPool(deckPool: number[], cap: number): Set<number> {
+  const shuffled = shuffle(deckPool);
+  return new Set(shuffled.slice(0, Math.min(cap, shuffled.length)));
 }
 
 interface GameState {
   mode: Mode;
   started: boolean; // true after user picks a mode and the round is active
+  /** UTC date key for Daily 20 puzzle + leaderboards; null in Full Deck. */
+  dailyDateKey: string | null;
+  /** True when replaying Daily 20 after already submitting today — score not recorded. */
+  daily20Unrecorded: boolean;
   deck: number[];
   hand: (number | null)[];
   placedZs: Set<number>;
@@ -211,6 +223,8 @@ function emptyState(): GameState {
   return {
     mode: "daily20",
     started: false,
+    dailyDateKey: null,
+    daily20Unrecorded: false,
     deck: [],
     hand: [null, null, null],
     placedZs: new Set(),
@@ -232,15 +246,30 @@ function emptyState(): GameState {
   };
 }
 
-function pickBonusZs(deckPool: number[], mode: Mode): Set<number> {
-  const cap = mode === "daily20" ? BONUS_DAILY20 : BONUS_FULL_DECK;
-  const shuffled = shuffle(deckPool);
-  return new Set(shuffled.slice(0, Math.min(cap, shuffled.length)));
-}
+function initialRound(
+  mode: Mode,
+  options?: { dailyDateKey?: string; daily20Unrecorded?: boolean },
+): GameState {
+  const dailyDateKey =
+    mode === "daily20" ? (options?.dailyDateKey ?? getUtcDateKey()) : null;
+  const daily20Unrecorded =
+    mode === "daily20" ? !!options?.daily20Unrecorded : false;
 
-function initialRound(mode: Mode): GameState {
-  const deck = buildDeck(mode);
-  const bonusZs = pickBonusZs(deck, mode);
+  let deck: number[] = [];
+  let bonusZs: Set<number>;
+
+  if (mode === "daily20") {
+    const dk = dailyDateKey!;
+    const nums = buildDaily20DeckNumbers(dk);
+    deck = [...nums];
+    bonusZs = pickDailyBonusZs(nums, BONUS_DAILY20, dk);
+  } else {
+    const allZs = ELEMENTS.map((el) => el.z);
+    const shuffled = shuffle(allZs);
+    deck = [...shuffled];
+    bonusZs = pickBonusZsFromPool(deck, BONUS_FULL_DECK);
+  }
+
   const hand: (number | null)[] = [];
   for (let i = 0; i < HAND_SIZE; i++) {
     hand.push(deck.shift() ?? null);
@@ -249,6 +278,8 @@ function initialRound(mode: Mode): GameState {
   return {
     mode,
     started: true,
+    dailyDateKey,
+    daily20Unrecorded,
     deck,
     hand,
     placedZs: new Set(),
@@ -305,6 +336,16 @@ export function Game() {
   const challengeOpenRef = useRef(false);
   const challengeMilestoneRef = useRef<number | null>(null);
   const challengeOpenTimerRef = useRef<number | null>(null);
+  const dailyUnrecordedForNextRoundRef = useRef(false);
+  const initialsPromptedRef = useRef(false);
+
+  const [leaderboardTab, setLeaderboardTab] = useState<Mode>("daily20");
+  const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardDb, setLeaderboardDb] = useState(true);
+  const [preRoundStep, setPreRoundStep] = useState<number | null>(null);
+  const [showDailyAlready, setShowDailyAlready] = useState(false);
+  const [initialsOpen, setInitialsOpen] = useState(false);
 
   useLayoutEffect(() => {
     challengeSnapshotRef.current = challenge;
@@ -449,7 +490,7 @@ export function Game() {
     return () => clearInterval(id);
   }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs, challenge, challengeFreezeAtMs]);
 
-  const handleStart = useCallback((mode: Mode) => {
+  const beginRound = useCallback((mode: Mode, opts?: { daily20Unrecorded?: boolean }) => {
     if (hudScoreDelayTimerRef.current) {
       clearTimeout(hudScoreDelayTimerRef.current);
       hudScoreDelayTimerRef.current = null;
@@ -457,7 +498,11 @@ export function Game() {
     hudScoreRafGenRef.current += 1;
     setHudScoreDisplay(0);
     setTableResetVersion((v) => v + 1);
-    setState(initialRound(mode));
+    setState(
+      initialRound(mode, {
+        daily20Unrecorded: opts?.daily20Unrecorded,
+      }),
+    );
     setTimerTick(0);
     setHintTrayPaddingRight(null);
     setPlacement({});
@@ -465,6 +510,8 @@ export function Game() {
     setPointerOverTray(true);
     pointerOverTrayRef.current = true;
     setShowPicker(false);
+    setPreRoundStep(null);
+    setShowDailyAlready(false);
     setChallenge(null);
     challengeMilestoneRef.current = null;
     setChallengeFreezeAtMs(null);
@@ -472,6 +519,8 @@ export function Game() {
       window.clearTimeout(challengeOpenTimerRef.current);
       challengeOpenTimerRef.current = null;
     }
+    initialsPromptedRef.current = false;
+    setInitialsOpen(false);
   }, []);
 
   const handleTimeUpContinue = useCallback(() => {
@@ -482,6 +531,109 @@ export function Game() {
 
   const handleOpenPicker = useCallback(() => setShowPicker(true), []);
   const handleClosePicker = useCallback(() => setShowPicker(false), []);
+
+  const handleModePick = useCallback(
+    async (mode: Mode) => {
+      if (mode === "fullDeck") {
+        setShowDailyAlready(false);
+        beginRound("fullDeck");
+        return;
+      }
+      try {
+        const dk = getUtcDateKey();
+        const r = await fetch(`/api/scores/check-daily?date=${encodeURIComponent(dk)}`);
+        const j = (await r.json()) as { played?: boolean; db?: boolean };
+        if (j.played && j.db) {
+          setShowDailyAlready(true);
+          return;
+        }
+      } catch {
+        // offline or API error — allow normal daily start
+      }
+      dailyUnrecordedForNextRoundRef.current = false;
+      setShowDailyAlready(false);
+      setShowPicker(false);
+      setPreRoundStep(0);
+    },
+    [beginRound],
+  );
+
+  useEffect(() => {
+    if (preRoundStep === null) return;
+    const ms = preRoundDurationMsForStep(preRoundStep);
+    const id = window.setTimeout(() => {
+      const last = getPreRoundStepCount() - 1;
+      if (preRoundStep >= last) {
+        setPreRoundStep(null);
+        beginRound("daily20", {
+          daily20Unrecorded: dailyUnrecordedForNextRoundRef.current,
+        });
+        dailyUnrecordedForNextRoundRef.current = false;
+      } else {
+        setPreRoundStep((s) => (s ?? 0) + 1);
+      }
+    }, ms);
+    return () => clearTimeout(id);
+  }, [preRoundStep, beginRound]);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    let cancelled = false;
+    setLeaderboardLoading(true);
+    const dk = getUtcDateKey();
+    const q =
+      leaderboardTab === "daily20"
+        ? `mode=daily20&date=${encodeURIComponent(dk)}`
+        : "mode=fullDeck";
+    fetch(`/api/scores?${q}`)
+      .then((r) => r.json())
+      .then((j: { entries?: LeaderboardEntry[]; db?: boolean }) => {
+        if (cancelled) return;
+        setLeaderboardRows(j.entries ?? []);
+        setLeaderboardDb(j.db !== false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLeaderboardRows([]);
+          setLeaderboardDb(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLeaderboardLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showPicker, leaderboardTab]);
+
+  useEffect(() => {
+    if (state.finished && state.started && !initialsPromptedRef.current) {
+      initialsPromptedRef.current = true;
+      setInitialsOpen(true);
+    }
+  }, [state.finished, state.started]);
+
+  const handleSubmitLeaderboardScore = useCallback(
+    async (initials: string) => {
+      const record = state.mode === "fullDeck" || !state.daily20Unrecorded;
+      const res = await fetch("/api/scores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: state.mode,
+          initials,
+          score: state.score,
+          dailyDateKey: state.dailyDateKey,
+          record,
+        }),
+      });
+      const j = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(typeof j.error === "string" ? j.error : "Could not save score");
+      }
+    },
+    [state.mode, state.score, state.dailyDateKey, state.daily20Unrecorded],
+  );
 
   const openChallengeBatch = useCallback((mode: Mode, pauseAtMs: number) => {
     setChallengeFreezeAtMs(null);
@@ -518,17 +670,19 @@ export function Game() {
   const applyChallengeCorrectReward = useCallback(
     (batch: ChallengeBatchState) => {
       let rewardLine = "";
-      setState((prev) => {
-        const r = resolveMidGameChallengeReward(prev);
-        rewardLine = r.rewardLine;
-        if (r.scoreAdd > 0) {
-          queueMicrotask(() => scheduleHudScoreRamp(0));
-        }
-        return {
-          ...prev,
-          score: prev.score + r.scoreAdd,
-          hintsRemaining: Math.min(HINTS_PER_ROUND, prev.hintsRemaining + r.hintDelta),
-        };
+      flushSync(() => {
+        setState((prev) => {
+          const r = resolveMidGameChallengeReward(prev);
+          rewardLine = r.rewardLine;
+          if (r.scoreAdd > 0) {
+            queueMicrotask(() => scheduleHudScoreRamp(0));
+          }
+          return {
+            ...prev,
+            score: prev.score + r.scoreAdd,
+            hintsRemaining: Math.min(HINTS_PER_ROUND, prev.hintsRemaining + r.hintDelta),
+          };
+        });
       });
       setChallenge({
         ...batch,
@@ -545,7 +699,7 @@ export function Game() {
       const b = challengeSnapshotRef.current;
       if (!b || b.phase !== "pick") return;
       const step = b.steps[b.stepIndex];
-      if (step.kind !== "tripleChoice") return;
+      if (!step || step.kind !== "tripleChoice") return;
       if (Number(pickedZ) !== Number(step.correctZ)) {
         setChallenge({ ...b, phase: "resolved", outcome: "wrong" });
         return;
@@ -565,7 +719,7 @@ export function Game() {
     const b = challengeSnapshotRef.current;
     if (!b || b.phase !== "pick" || !b.atomicOrderZs) return;
     const step = b.steps[b.stepIndex];
-    if (step.kind !== "atomicOrder") return;
+    if (!step || step.kind !== "atomicOrder") return;
     if (!isAtomicOrderCorrect(step.sortedZs, b.atomicOrderZs)) {
       setChallenge({ ...b, phase: "resolved", outcome: "wrong" });
       return;
@@ -821,7 +975,8 @@ export function Game() {
                 timerSecondsLeft !== null ? formatTimeMmSs(timerSecondsLeft) : null
               }
               onOpenMenu={handleOpenPicker}
-              onRestart={() => handleStart(state.mode)}
+              onRestart={() => beginRound(state.mode)}
+              restartDisabled={state.mode === "daily20" && state.started}
             />
           </div>
 
@@ -852,7 +1007,8 @@ export function Game() {
                 bestStreak={state.bestStreak}
                 accuracy={accuracy}
                 total={state.totalDrops}
-                onRestart={() => handleStart(state.mode)}
+                showPlayAgain={state.mode !== "daily20"}
+                onRestart={() => beginRound(state.mode)}
                 onChangeMode={handleOpenPicker}
               />
             ) : state.started ? (
@@ -892,20 +1048,48 @@ export function Game() {
       {showPicker && (
         <ModePicker
           currentMode={state.started ? state.mode : null}
-          onPick={handleStart}
+          onPick={handleModePick}
           onClose={state.started ? handleClosePicker : undefined}
+          leaderboardTab={leaderboardTab}
+          onLeaderboardTabChange={setLeaderboardTab}
+          leaderboardEntries={leaderboardRows}
+          leaderboardLoading={leaderboardLoading}
+          leaderboardDbConnected={leaderboardDb}
         />
       )}
 
       {state.afterTimeUp === "modal" && state.timeUpSealedScore != null ? (
         <TimeUpModal
           score={state.timeUpSealedScore}
-          onNewGame={() => handleStart(state.mode)}
+          onNewGame={() =>
+            state.mode === "daily20" ? handleOpenPicker() : beginRound(state.mode)
+          }
           onContinue={handleTimeUpContinue}
         />
       ) : null}
     </DndContext>
 
+      {showDailyAlready ? (
+        <DailyAlreadyPlayedModal
+          onPlayUnrecorded={() => {
+            setShowDailyAlready(false);
+            dailyUnrecordedForNextRoundRef.current = true;
+            setShowPicker(false);
+            setPreRoundStep(0);
+          }}
+          onBack={() => setShowDailyAlready(false)}
+        />
+      ) : null}
+
+      {preRoundStep !== null ? <PreRoundCountdown stepIndex={preRoundStep} /> : null}
+
+      {initialsOpen && state.finished && state.started ? (
+        <SubmitInitialsModal
+          score={state.score}
+          onSubmit={handleSubmitLeaderboardScore}
+          onDismiss={() => setInitialsOpen(false)}
+        />
+      ) : null}
       {challenge != null ? (
         <ChallengeModal
           open
@@ -1060,6 +1244,7 @@ function FinishedPanel({
   bestStreak,
   accuracy,
   total,
+  showPlayAgain,
   onRestart,
   onChangeMode,
 }: {
@@ -1068,6 +1253,7 @@ function FinishedPanel({
   bestStreak: number;
   accuracy: number;
   total: number;
+  showPlayAgain: boolean;
   onRestart: () => void;
   onChangeMode: () => void;
 }) {
@@ -1130,17 +1316,21 @@ function FinishedPanel({
         </div>
         <div className="mt-2 text-xs text-ink-300">{total} elements placed</div>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {showPlayAgain ? (
+            <button
+              type="button"
+              onClick={onRestart}
+              className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
+            >
+              Play again
+            </button>
+          ) : null}
           <button
-            onClick={onRestart}
-            className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
-          >
-            Play again
-          </button>
-          <button
+            type="button"
             onClick={onChangeMode}
             className="rounded-full border border-white/15 bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink-300 hover:bg-white/[0.1] hover:text-white"
           >
-            Change mode
+            {showPlayAgain ? "Change mode" : "Menu"}
           </button>
         </div>
       </div>

@@ -153,7 +153,7 @@ export function ChallengeModal({
       role="dialog"
       aria-modal="true"
       aria-label="Bonus challenge"
-      className="fixed inset-0 z-[58] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4"
     >
       <div className="absolute inset-0 bg-ink-950/88 backdrop-blur-md" aria-hidden />
 
@@ -194,7 +194,7 @@ export function ChallengeModal({
                 outcome === "correct" ? "text-emerald-300" : "text-amber-200"
               }`}
             >
-              {outcome === "correct" ? rewardLine : "Not quite."}
+              {outcome === "correct" ? rewardLine || "Correct!" : "Not quite."}
             </p>
             <button
               type="button"

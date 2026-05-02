@@ -15,6 +15,8 @@ interface HUDProps {
   timerLabel: string | null;
   onOpenMenu: () => void;
   onRestart: () => void;
+  /** When true, Restart is disabled (Daily 20). */
+  restartDisabled?: boolean;
 }
 
 export function HUD({
@@ -28,6 +30,7 @@ export function HUD({
   timerLabel,
   onOpenMenu,
   onRestart,
+  restartDisabled = false,
 }: HUDProps) {
   const mult = streakMultiplier(streak);
   return (
@@ -37,7 +40,7 @@ export function HUD({
           <span className="title-grad">eleMENTAL</span>
         </h1>
         <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-widest text-ink-300">
-          Periodic drag &amp; drop
+          Let&apos;s develop some chemistry!
         </span>
       </div>
 
@@ -81,8 +84,9 @@ export function HUD({
 
         <button
           onClick={onRestart}
-          disabled={!started}
+          disabled={!started || restartDisabled}
           className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+          title={restartDisabled ? "Restart is disabled in Daily 20 — use Menu to change mode" : undefined}
         >
           Restart
         </button>

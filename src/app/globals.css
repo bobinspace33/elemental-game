@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(60% 50% at 20% 10%, rgba(99, 102, 241, 0.18), transparent 60%),
+    radial-gradient(50% 40% at 85% 0%, rgba(236, 72, 153, 0.12), transparent 60%),
+    radial-gradient(50% 50% at 50% 100%, rgba(34, 211, 238, 0.10), transparent 60%),
+    #07080c;
+  color: #e6e8ee;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Hide native focus ring noise on draggable elements; we handle it ourselves. */
+[data-dnd-draggable]:focus { outline: none; }
+
+/* Subtle starfield grain on the table backdrop. */
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 14px 14px;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* Gradient title shimmer */
+.title-grad {
+  background: linear-gradient(
+    90deg,
+    #f87171 0%, #fbbf24 18%, #34d399 36%, #22d3ee 54%, #818cf8 72%, #e879f9 90%, #f87171 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 6s linear infinite;
+}
+
+/* Drag preview tilt — used while dragging in open space */
+.drag-tilt {
+  transform: rotate(-3deg) scale(1.04);
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.45));
+}
+
+/* Slot hover ring */
+.slot-hot {
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.85), 0 0 24px rgba(34, 211, 238, 0.35) inset;
+}
+
+/* Subtle scrollbar */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #1f2536; border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ──────────────────────────────────────────────────────────────────
+   2x bonus card — animated rainbow stroke + soft glow.
+   The wrapper is rendered around the card and its 2px padding is
+   filled by an animated rainbow gradient, creating the visible stroke.
+   ────────────────────────────────────────────────────────────────── */
+@keyframes rainbowShift {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.bonus-wrapper {
+  background: linear-gradient(
+    90deg,
+    #f87171 0%,
+    #fbbf24 16%,
+    #34d399 33%,
+    #22d3ee 50%,
+    #818cf8 66%,
+    #e879f9 83%,
+    #f87171 100%
+  );
+  background-size: 200% 100%;
+  animation: rainbowShift 3s linear infinite;
+  filter:
+    drop-shadow(0 0 6px rgba(255, 255, 255, 0.18))
+    drop-shadow(0 0 14px rgba(232, 121, 249, 0.18));
+}
+
+/* Rainbow text used for the "x2" badge and bonus pop tag. */
+.text-rainbow {
+  background: linear-gradient(
+    90deg,
+    #f87171, #fbbf24, #34d399, #22d3ee, #818cf8, #e879f9, #f87171
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: rainbowShift 3s linear infinite;
+}
+
+/* Rainbow fill behind the "Use Hint" button. Width is set inline based on
+   the remaining-hints fraction; the right edge contracts as hints are
+   spent, leaving the dark button background showing on the right. */
+.hint-fill {
+  background: linear-gradient(
+    90deg,
+    #f87171,
+    #fbbf24,
+    #34d399,
+    #22d3ee,
+    #818cf8,
+    #e879f9
+  );
+  background-size: 200% 100%;
+  animation: rainbowShift 6s linear infinite;
+}

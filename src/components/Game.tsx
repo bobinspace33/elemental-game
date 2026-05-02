@@ -21,6 +21,12 @@ import {
 import { getEventCoordinates } from "@dnd-kit/utilities";
 
 import { ELEMENTS, ELEMENTS_BY_Z } from "@/lib/elements";
+import {
+  buildChallengeStepsForMilestone,
+  isAtomicOrderCorrect,
+  resolveMidGameChallengeReward,
+  type MidGameChallengeStep,
+} from "@/lib/challenges";
 import { zPlacementWindow } from "@/lib/placementHint";
 import { computeScore, nextStreak } from "@/lib/scoring";
 import { ElementCard } from "./ElementCard";
@@ -28,17 +34,47 @@ import { Hand } from "./Hand";
 import { HUD } from "./HUD";
 import { ModePicker } from "./ModePicker";
 import { PeriodicTable, PLACEMENT_OVERLAY_TOTAL_MS, SCORE_OVERLAY_COUNT_MS, SCORE_OVERLAY_FADE_MS, SCORE_OVERLAY_HOLD_MS, type PlacementInfo } from "./PeriodicTable";
-import { FloatingScore } from "./FloatingScore";
 import { ViewportFitScale } from "./ViewportFitScale";
+import { ChallengeModal } from "./ChallengeModal";
 
 type Mode = "daily20" | "fullDeck";
 
-interface DropEvent {
-  id: number;
-  amount: number;
-  exact: boolean;
-  multiplier: number;
-  bonus: boolean;
+const CELEBRATION_PHRASES = [
+  "Got it!",
+  "Nailed it!",
+  "Bingo!",
+  "Boom!",
+  "Fantastic!",
+  "Correct!",
+  "Perfect!",
+  "Crushed it!",
+  "Yes!",
+  "Beautiful!",
+  "Spot on!",
+  "Legendary!",
+  "On fire!",
+  "Sensational!",
+  "Exactly!",
+  "Brilliant!",
+  "You got this!",
+] as const;
+
+function pickCelebrationPhrase(): string {
+  return CELEBRATION_PHRASES[
+    Math.floor(Math.random() * CELEBRATION_PHRASES.length)
+  ]!;
+}
+
+/** Bonus challenge batch: timer pauses once for the whole batch until final Continue. */
+interface ChallengeBatchState {
+  pauseAtMs: number;
+  steps: MidGameChallengeStep[];
+  stepIndex: number;
+  phase: "pick" | "resolved";
+  outcome?: "correct" | "wrong";
+  rewardLine?: string;
+  /** Left-to-right Z order while `atomicOrder` step is active. */
+  atomicOrderZs: number[] | null;
 }
 
 const HAND_SIZE = 3;
@@ -51,6 +87,9 @@ const HINTS_PER_ROUND = 3;
 const DAILY20_TIME_SEC = 3 * 60;
 const FULL_DECK_TIME_SEC = 15 * 60;
 const TIME_BONUS_PER_SECOND = 50;
+
+/** Mini-challenge every N placements: Daily 20 gets 3 prompts per milestone, Full Deck gets 1. */
+const CHALLENGE_EVERY_N_PLACEMENTS = 10;
 
 /** Slot-sized drag preview when `slotPx` is not yet measured from the table. */
 const FALLBACK_SLOT_PX = 67;
@@ -245,11 +284,14 @@ export function Game() {
     null,
   );
   const [placement, setPlacement] = useState<PlacementInfo>({});
-  const [floatEvents, setFloatEvents] = useState<DropEvent[]>([]);
+  const [tableHitStop, setTableHitStop] = useState(0);
   /** Drives HUD countdown re-renders once per second while the round clock is running. */
   const [timerTick, setTimerTick] = useState(0);
   /** HUD “Score” stat — lags `state.score` until overlay count-up ends, then ramps during overlay fade. */
   const [hudScoreDisplay, setHudScoreDisplay] = useState(0);
+  const [challenge, setChallenge] = useState<ChallengeBatchState | null>(null);
+  /** Freezes round clock until challenge modal opens (matches upcoming `pauseAtMs`). */
+  const [challengeFreezeAtMs, setChallengeFreezeAtMs] = useState<number | null>(null);
   const dropIdCounter = useRef(0);
   const trueScoreRef = useRef(0);
   const hudScoreDisplayRef = useRef(0);
@@ -259,6 +301,15 @@ export function Game() {
   const pointerOverTrayRef = useRef(true);
   const slotPxRef = useRef(0);
   const trayRef = useRef<HTMLDivElement>(null);
+  const challengeSnapshotRef = useRef<ChallengeBatchState | null>(null);
+  const challengeOpenRef = useRef(false);
+  const challengeMilestoneRef = useRef<number | null>(null);
+  const challengeOpenTimerRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    challengeSnapshotRef.current = challenge;
+    challengeOpenRef.current = challenge != null;
+  }, [challenge]);
 
   useLayoutEffect(() => {
     trueScoreRef.current = state.score;
@@ -268,7 +319,7 @@ export function Game() {
     hudScoreDisplayRef.current = hudScoreDisplay;
   }, [hudScoreDisplay]);
 
-  const scheduleHudRampAfterOverlay = useCallback(() => {
+  const scheduleHudScoreRamp = useCallback((delayMs: number) => {
     if (hudScoreDelayTimerRef.current) {
       clearTimeout(hudScoreDelayTimerRef.current);
       hudScoreDelayTimerRef.current = null;
@@ -292,8 +343,12 @@ export function Game() {
         if (t < 1) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    }, SCORE_OVERLAY_COUNT_MS + SCORE_OVERLAY_HOLD_MS);
+    }, delayMs);
   }, []);
+
+  const scheduleHudRampAfterOverlay = useCallback(() => {
+    scheduleHudScoreRamp(SCORE_OVERLAY_COUNT_MS + SCORE_OVERLAY_HOLD_MS);
+  }, [scheduleHudScoreRamp]);
 
   useLayoutEffect(() => {
     slotPxRef.current = slotPx;
@@ -349,20 +404,32 @@ export function Game() {
   );
   const remaining = totalForRound - state.totalDrops;
 
+  const timerFreezeAtMs = challenge?.pauseAtMs ?? challengeFreezeAtMs;
   const timerSecondsLeft =
     !state.started || state.timerEndMs == null
       ? null
       : state.finished || state.afterTimeUp !== "none"
         ? 0
-        : Math.max(0, Math.ceil((state.timerEndMs - Date.now()) / 1000));
+        : timerFreezeAtMs != null
+          ? Math.max(0, Math.ceil((state.timerEndMs - timerFreezeAtMs) / 1000))
+          : Math.max(0, Math.ceil((state.timerEndMs - Date.now()) / 1000));
 
   useEffect(() => {
-    if (!state.started || state.finished || state.afterTimeUp !== "none") return;
+    if (
+      !state.started ||
+      state.finished ||
+      state.afterTimeUp !== "none" ||
+      challenge != null ||
+      challengeFreezeAtMs != null
+    ) {
+      return;
+    }
     const id = window.setInterval(() => setTimerTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, [state.started, state.finished, state.afterTimeUp]);
+  }, [state.started, state.finished, state.afterTimeUp, challenge, challengeFreezeAtMs]);
 
   useEffect(() => {
+    if (challenge != null || challengeFreezeAtMs != null) return;
     if (!state.started || state.finished || state.afterTimeUp !== "none" || state.timerEndMs == null) {
       return;
     }
@@ -380,7 +447,7 @@ export function Game() {
     const id = window.setInterval(fire, 250);
     fire();
     return () => clearInterval(id);
-  }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs]);
+  }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs, challenge, challengeFreezeAtMs]);
 
   const handleStart = useCallback((mode: Mode) => {
     if (hudScoreDelayTimerRef.current) {
@@ -394,11 +461,17 @@ export function Game() {
     setTimerTick(0);
     setHintTrayPaddingRight(null);
     setPlacement({});
-    setFloatEvents([]);
     setActiveDragZ(null);
     setPointerOverTray(true);
     pointerOverTrayRef.current = true;
     setShowPicker(false);
+    setChallenge(null);
+    challengeMilestoneRef.current = null;
+    setChallengeFreezeAtMs(null);
+    if (challengeOpenTimerRef.current != null) {
+      window.clearTimeout(challengeOpenTimerRef.current);
+      challengeOpenTimerRef.current = null;
+    }
   }, []);
 
   const handleTimeUpContinue = useCallback(() => {
@@ -410,10 +483,124 @@ export function Game() {
   const handleOpenPicker = useCallback(() => setShowPicker(true), []);
   const handleClosePicker = useCallback(() => setShowPicker(false), []);
 
+  const openChallengeBatch = useCallback((mode: Mode, pauseAtMs: number) => {
+    setChallengeFreezeAtMs(null);
+    const steps = buildChallengeStepsForMilestone(mode);
+    const first = steps[0]!;
+    setChallenge({
+      pauseAtMs,
+      steps,
+      stepIndex: 0,
+      phase: "pick",
+      atomicOrderZs: first.kind === "atomicOrder" ? [...first.initialOrderZs] : null,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!state.started || state.finished) return;
+    const n = state.totalDrops;
+    if (n === 0 || n % CHALLENGE_EVERY_N_PLACEMENTS !== 0) return;
+    if (challengeMilestoneRef.current === n) return;
+    challengeMilestoneRef.current = n;
+
+    const pauseAtMs = Date.now();
+    setChallengeFreezeAtMs(pauseAtMs);
+    if (challengeOpenTimerRef.current != null) {
+      window.clearTimeout(challengeOpenTimerRef.current);
+      challengeOpenTimerRef.current = null;
+    }
+    challengeOpenTimerRef.current = window.setTimeout(() => {
+      challengeOpenTimerRef.current = null;
+      openChallengeBatch(state.mode, pauseAtMs);
+    }, PLACEMENT_OVERLAY_TOTAL_MS);
+  }, [state.totalDrops, state.started, state.finished, state.mode, openChallengeBatch]);
+
+  const applyChallengeCorrectReward = useCallback(
+    (batch: ChallengeBatchState) => {
+      let rewardLine = "";
+      setState((prev) => {
+        const r = resolveMidGameChallengeReward(prev);
+        rewardLine = r.rewardLine;
+        if (r.scoreAdd > 0) {
+          queueMicrotask(() => scheduleHudScoreRamp(0));
+        }
+        return {
+          ...prev,
+          score: prev.score + r.scoreAdd,
+          hintsRemaining: Math.min(HINTS_PER_ROUND, prev.hintsRemaining + r.hintDelta),
+        };
+      });
+      setChallenge({
+        ...batch,
+        phase: "resolved",
+        outcome: "correct",
+        rewardLine,
+      });
+    },
+    [scheduleHudScoreRamp],
+  );
+
+  const handleChallengeNoblePick = useCallback(
+    (pickedZ: number) => {
+      const b = challengeSnapshotRef.current;
+      if (!b || b.phase !== "pick") return;
+      const step = b.steps[b.stepIndex];
+      if (step.kind !== "tripleChoice") return;
+      if (Number(pickedZ) !== Number(step.correctZ)) {
+        setChallenge({ ...b, phase: "resolved", outcome: "wrong" });
+        return;
+      }
+      applyChallengeCorrectReward(b);
+    },
+    [applyChallengeCorrectReward],
+  );
+
+  const handleAtomicReorder = useCallback((orderedZs: number[]) => {
+    setChallenge((b) =>
+      b && b.phase === "pick" ? { ...b, atomicOrderZs: orderedZs } : b,
+    );
+  }, []);
+
+  const handleAtomicSubmit = useCallback(() => {
+    const b = challengeSnapshotRef.current;
+    if (!b || b.phase !== "pick" || !b.atomicOrderZs) return;
+    const step = b.steps[b.stepIndex];
+    if (step.kind !== "atomicOrder") return;
+    if (!isAtomicOrderCorrect(step.sortedZs, b.atomicOrderZs)) {
+      setChallenge({ ...b, phase: "resolved", outcome: "wrong" });
+      return;
+    }
+    applyChallengeCorrectReward(b);
+  }, [applyChallengeCorrectReward]);
+
+  const handleChallengeContinue = useCallback(() => {
+    const b = challengeSnapshotRef.current;
+    if (!b || b.phase !== "resolved") return;
+    if (b.stepIndex < b.steps.length - 1) {
+      const nextIdx = b.stepIndex + 1;
+      const next = b.steps[nextIdx]!;
+      setChallenge({
+        ...b,
+        stepIndex: nextIdx,
+        phase: "pick",
+        outcome: undefined,
+        rewardLine: undefined,
+        atomicOrderZs: next.kind === "atomicOrder" ? [...next.initialOrderZs] : null,
+      });
+      return;
+    }
+    const pauseMs = Date.now() - b.pauseAtMs;
+    setState((s) =>
+      s.timerEndMs != null ? { ...s, timerEndMs: s.timerEndMs + pauseMs } : s,
+    );
+    setChallenge(null);
+  }, []);
+
   // Per-card hints: each Use Hint click advances every hand card one step:
   // blank → color → width-5 range → width-2 range (already-maxed cards unchanged).
   const handleUseHint = useCallback(() => {
     setState((prev) => {
+      if (challengeOpenRef.current) return prev;
       if (!prev.started || prev.finished || prev.afterTimeUp === "modal") return prev;
       if (prev.hintsRemaining <= 0) return prev;
 
@@ -521,6 +708,7 @@ export function Game() {
     const droppedSlotZ = slotElement.z;
 
     setState((prev) => {
+      if (challengeOpenRef.current) return prev;
       if (!prev.started || prev.finished) return prev;
       if (prev.afterTimeUp === "modal") return prev;
       if (!prev.hand.includes(z)) return prev;
@@ -565,18 +753,12 @@ export function Game() {
         flashAt: flash,
         dropId,
         scoreFloat: { target: points, dropId },
+        celebrationPhrase: result.exact ? pickCelebrationPhrase() : undefined,
+        streakLength:
+          !scoreFrozen && result.exact && newStreak >= 2 ? newStreak : undefined,
       });
-      if (!scoreFrozen) {
-        setFloatEvents((evts) => [
-          ...evts.slice(-5),
-          {
-            id: dropId,
-            amount: points,
-            exact: result.exact,
-            multiplier: result.streakMultiplier,
-            bonus: isBonus,
-          },
-        ]);
+      if (result.exact) {
+        queueMicrotask(() => setTableHitStop((n) => n + 1));
       }
 
       const LINE_MS = PLACEMENT_OVERLAY_TOTAL_MS;
@@ -616,6 +798,7 @@ export function Game() {
       : 0;
 
   return (
+    <>
     <DndContext
       sensors={sensors}
       collisionDetection={slotCollisionDetection}
@@ -650,6 +833,7 @@ export function Game() {
               resetVersion={tableResetVersion}
               placedZs={state.placedZs}
               placement={placement}
+              hitStopVersion={tableHitStop}
               onSlotScreenSize={handleSlotScreenSize}
               viewportScale={viewportScale}
             />
@@ -661,9 +845,6 @@ export function Game() {
           className="relative z-[1] w-full shrink-0 border-t border-white/[0.06] bg-gradient-to-b from-slate-950/95 via-ink-950 to-black pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_36px_-4px_rgba(0,0,0,0.5),0_-3px_14px_rgba(15,23,42,0.28)]"
         >
           <div className="relative flex w-full flex-col items-center gap-1">
-            <div className="pointer-events-none absolute -top-1 right-3 z-10 flex flex-col items-end gap-0.5 md:right-5">
-              <FloatStack events={floatEvents} />
-            </div>
             {state.finished ? (
               <FinishedPanel
                 score={state.score}
@@ -724,6 +905,24 @@ export function Game() {
         />
       ) : null}
     </DndContext>
+
+      {challenge != null ? (
+        <ChallengeModal
+          open
+          modeLabel={state.mode === "daily20" ? "Daily 20" : "Full Deck"}
+          stepProgress={`${challenge.stepIndex + 1} / ${challenge.steps.length}`}
+          currentStep={challenge.steps[challenge.stepIndex]!}
+          phase={challenge.phase}
+          outcome={challenge.outcome}
+          rewardLine={challenge.rewardLine}
+          atomicOrderZs={challenge.atomicOrderZs}
+          onTripleChoicePick={handleChallengeNoblePick}
+          onAtomicOrderChange={handleAtomicReorder}
+          onAtomicSubmit={handleAtomicSubmit}
+          onContinue={handleChallengeContinue}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -803,24 +1002,6 @@ function TableDragPreview({
     >
       {shell}
     </div>
-  );
-}
-
-function FloatStack({ events }: { events: DropEvent[] }) {
-  const recent = events.slice(-3);
-  return (
-    <>
-      {recent.map((e) => (
-        <FloatingScore
-          key={e.id}
-          id={e.id}
-          amount={e.amount}
-          exact={e.exact}
-          multiplier={e.multiplier}
-          bonus={e.bonus}
-        />
-      ))}
-    </>
   );
 }
 

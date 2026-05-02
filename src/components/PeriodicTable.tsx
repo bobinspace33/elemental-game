@@ -31,6 +31,10 @@ export interface PlacementInfo {
   dropId?: number;
   /** Final points for this drop — count-up beside the correct cell. */
   scoreFloat?: { target: number; dropId: number };
+  /** Exact placement: random phrase flashed center-table ~1s. */
+  celebrationPhrase?: string;
+  /** Consecutive exact count (≥2): rainbow label beside the score pop. */
+  streakLength?: number;
 }
 
 interface PeriodicTableProps {
@@ -42,6 +46,8 @@ interface PeriodicTableProps {
   onSlotScreenSize?: (px: number) => void;
   /** From `ViewportFitScale` — remeasure when table scale changes. */
   viewportScale?: number;
+  /** Increments on each exact drop — brief hit-stop on the table shell. */
+  hitStopVersion?: number;
 }
 
 interface SlotProps {
@@ -109,13 +115,25 @@ function Slot({
       data-col={col}
     >
       {placed ? (
-        <ElementCard
-          element={element}
-          colored
-          size="sm"
-          compact
-          className="!h-full !w-full"
-        />
+        flashKind === "good" ? (
+          <div className="h-full w-full origin-center animate-correctSlotPop">
+            <ElementCard
+              element={element}
+              colored
+              size="sm"
+              compact
+              className="!h-full !w-full"
+            />
+          </div>
+        ) : (
+          <ElementCard
+            element={element}
+            colored
+            size="sm"
+            compact
+            className="!h-full !w-full"
+          />
+        )
       ) : (
         <span className="font-mono text-[11px] text-white/[0.58] md:text-xs">{element.z}</span>
       )}
@@ -163,11 +181,14 @@ interface ScorePopState {
   target: number;
   x: number;
   y: number;
+  streakLength?: number;
 }
 
 const CONNECT_MS = 1700;
 const SCORE_HOLD_MS = 800;
 const SCORE_FADE_MS = 3000;
+/** Celebration phrase visible + fade — matches `animate-celebrationFlash` duration. */
+const CELEBRATION_OVERLAY_MS = 2000;
 
 /** Placement overlay count-up duration — HUD total waits through this + hold before ramping. */
 export const SCORE_OVERLAY_COUNT_MS = CONNECT_MS;
@@ -264,10 +285,12 @@ function ShrinkingConnectorLine({
 function ScorePopLabel({
   target,
   popId,
+  streakLength,
   onFinished,
 }: {
   target: number;
   popId: number;
+  streakLength?: number;
   onFinished: (id: number) => void;
 }) {
   const [shown, setShown] = useState(0);
@@ -309,16 +332,72 @@ function ScorePopLabel({
     };
   }, [target, popId, onFinished]);
 
+  const fadeWrap = [
+    "flex flex-col items-start gap-1 transition-opacity ease-out",
+    fadeOut ? "opacity-0 duration-[3000ms]" : "opacity-100 duration-150",
+  ].join(" ");
+
   return (
-    <span
-      className={[
-        "font-mono text-2xl font-bold tabular-nums text-white transition-opacity ease-out md:text-3xl",
-        "drop-shadow-[0_2px_10px_rgba(0,0,0,0.95),0_0_20px_rgba(255,255,255,0.12)]",
-        fadeOut ? "opacity-0 duration-[3000ms]" : "opacity-100 duration-150",
-      ].join(" ")}
+    <div className={fadeWrap}>
+      {streakLength != null && streakLength >= 2 ? (
+        <span className="title-grad whitespace-nowrap text-sm font-black leading-tight tracking-tight drop-shadow-[0_1px_10px_rgba(0,0,0,0.95)] md:text-base">
+          Streak ×{streakLength}!
+        </span>
+      ) : null}
+      <span className="whitespace-nowrap font-mono text-2xl font-bold tabular-nums text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95),0_0_20px_rgba(255,255,255,0.12)] md:text-3xl">
+        +{shown.toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
+function CelebrationPhraseSvg({
+  text,
+  gradId,
+}: {
+  text: string;
+  gradId: string;
+}) {
+  return (
+    <svg
+      className="w-full max-w-[min(96vw,56rem)] overflow-visible"
+      viewBox="0 0 1000 170"
+      role="img"
+      aria-hidden
     >
-      +{shown.toLocaleString()}
-    </span>
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="rgb(248, 113, 113)" />
+          <stop offset="18%" stopColor="rgb(251, 191, 36)" />
+          <stop offset="36%" stopColor="rgb(52, 211, 153)" />
+          <stop offset="54%" stopColor="rgb(34, 211, 238)" />
+          <stop offset="72%" stopColor="rgb(129, 140, 248)" />
+          <stop offset="88%" stopColor="rgb(232, 121, 249)" />
+          <stop offset="100%" stopColor="rgb(248, 113, 113)" />
+        </linearGradient>
+      </defs>
+      <text
+        x="500"
+        y="86"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill={`url(#${gradId})`}
+        stroke={`url(#${gradId})`}
+        strokeWidth={6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        paintOrder="stroke fill"
+        style={{
+          fontSize: 80,
+          fontWeight: 900,
+          letterSpacing: "-0.02em",
+          fontFamily:
+            'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+        }}
+      >
+        {text}
+      </text>
+    </svg>
   );
 }
 
@@ -328,11 +407,17 @@ export function PeriodicTable({
   resetVersion = 0,
   onSlotScreenSize,
   viewportScale = 1,
+  hitStopVersion = 0,
 }: PeriodicTableProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [line, setLine] = useState<LineState | null>(null);
   const [scorePop, setScorePop] = useState<ScorePopState | null>(null);
+  const [hitStopPulse, setHitStopPulse] = useState(false);
+  const [celebration, setCelebration] = useState<{
+    text: string;
+    key: number;
+  } | null>(null);
 
   const dismissScorePop = useCallback((id: number) => {
     setScorePop((cur) => (cur && cur.id === id ? null : cur));
@@ -341,7 +426,26 @@ export function PeriodicTable({
   useEffect(() => {
     setLine(null);
     setScorePop(null);
+    setCelebration(null);
   }, [resetVersion]);
+
+  useEffect(() => {
+    if (!hitStopVersion) return;
+    setHitStopPulse(true);
+    const t = window.setTimeout(() => setHitStopPulse(false), 120);
+    return () => clearTimeout(t);
+  }, [hitStopVersion]);
+
+  useEffect(() => {
+    const phrase = placement?.celebrationPhrase;
+    const id = placement?.dropId;
+    if (!phrase || id == null) return;
+    setCelebration({ text: phrase, key: id });
+    const t = window.setTimeout(() => {
+      setCelebration((c) => (c?.key === id ? null : c));
+    }, CELEBRATION_OVERLAY_MS);
+    return () => clearTimeout(t);
+  }, [placement?.dropId, placement?.celebrationPhrase]);
 
   const registerRef = (key: string, el: HTMLDivElement | null) => {
     if (el) slotRefs.current.set(key, el);
@@ -396,6 +500,7 @@ export function PeriodicTable({
       target,
       x: tR.right - c.left + 14,
       y: tR.top + tR.height / 2 - c.top,
+      streakLength: placement.streakLength,
     });
 
     const timer = window.setTimeout(() => {
@@ -482,7 +587,29 @@ export function PeriodicTable({
   }
 
   return (
-    <div className="grain relative min-w-[984px] overflow-visible rounded-2xl border border-white/15 bg-ink-900/60 p-3.5 md:p-5">
+    <div
+      className={[
+        "grain relative min-w-[984px] overflow-visible rounded-2xl border border-white/15 bg-ink-900/60 p-3.5 md:p-5",
+        hitStopPulse ? "animate-hitStop" : "",
+      ].join(" ")}
+    >
+      {celebration ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-[34] flex items-center justify-center px-6 md:px-12"
+          aria-live="polite"
+          aria-label={celebration.text}
+        >
+          <div
+            key={celebration.key}
+            className="animate-celebrationFlash drop-shadow-[0_4px_32px_rgba(0,0,0,0.55)]"
+          >
+            <CelebrationPhraseSvg
+              text={celebration.text}
+              gradId={`cele-grad-${celebration.key}`}
+            />
+          </div>
+        </div>
+      ) : null}
       <div
         ref={containerRef}
         className="relative grid w-full min-w-[984px] gap-1.5 overflow-visible pr-[6.5rem] md:gap-2 md:pr-40"
@@ -522,6 +649,7 @@ export function PeriodicTable({
             <ScorePopLabel
               target={scorePop.target}
               popId={scorePop.id}
+              streakLength={scorePop.streakLength}
               onFinished={dismissScorePop}
             />
           </div>

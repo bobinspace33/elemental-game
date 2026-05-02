@@ -43,7 +43,7 @@ export function ModePicker({ currentMode, onPick, onClose }: ModePickerProps) {
             <span className="title-grad">eleMENTAL</span>
           </h2>
           <p className="max-w-sm text-sm text-ink-300">
-            Drag element cards into the right slot. Closer = more points. Streaks
+            Drag element cards into their correct positions. Closer = more points. Streaks
             multiply your score.
           </p>
         </div>
@@ -51,14 +51,14 @@ export function ModePicker({ currentMode, onPick, onClose }: ModePickerProps) {
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ModeCard
             title="Daily 20"
-            blurb="One shared 20-element set for everyone (daily puzzle rollout). Fast session, 3-minute timer."
+            blurb="One shared 20-element set for everyone. 3-minute timer."
             accent="from-cyan-500/80 to-emerald-500/80"
             isCurrent={currentMode === "daily20"}
             onClick={() => onPick("daily20")}
           />
           <ModeCard
             title="Full Deck"
-            blurb="All 118 elements, in shuffled order. The real test."
+            blurb="All 118 elements. 15-minute timer."
             accent="from-fuchsia-500/80 to-violet-500/80"
             isCurrent={currentMode === "fullDeck"}
             onClick={() => onPick("fullDeck")}

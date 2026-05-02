@@ -43,11 +43,13 @@ export function HUD({
 
       <div className="flex flex-wrap items-center gap-2">
         {timerLabel != null ? (
-          <div className="flex flex-col items-start rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5">
+          <div className="flex w-[7.25rem] shrink-0 flex-col items-stretch rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5">
             <span className="text-[10px] uppercase tracking-widest text-white/80">
               Time
             </span>
-            <span className="font-mono text-base font-bold text-white">{timerLabel}</span>
+            <span className="mx-auto inline-block w-[6ch] text-center font-mono text-base font-bold tabular-nums text-white">
+              {timerLabel}
+            </span>
           </div>
         ) : null}
         <Stat

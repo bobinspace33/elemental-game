@@ -1,5 +1,6 @@
--- Run in Neon / Vercel Postgres SQL editor (or psql) after creating a database.
--- Env: set POSTGRES_URL or DATABASE_URL in Vercel project settings.
+-- Neon / Vercel Postgres: paste ONLY the statements below into the SQL Editor.
+-- Do NOT paste the file path (e.g. sql/scores.sql), markdown fences (```sql), or \i commands.
+-- Env: set POSTGRES_URL or DATABASE_URL in your app.
 
 CREATE TABLE IF NOT EXISTS score_entries (
   id BIGSERIAL PRIMARY KEY,

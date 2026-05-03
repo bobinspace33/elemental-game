@@ -1335,11 +1335,6 @@ function Practice20TimerModal({ onYes, onNo }: { onYes: () => void; onNo: () => 
       <div className="relative mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-ink-900/95 p-7 text-center shadow-2xl shadow-black/60">
         <h2 className="text-xl font-bold text-white md:text-2xl">Practice 20</h2>
         <p className="mt-4 text-base font-medium text-white">Do you want a timer?</p>
-        <p className="mt-3 text-sm leading-relaxed text-ink-400">
-          <span className="text-emerald-200/90">Yes</span> — 3-minute countdown; leftover seconds add to your score
-          at the end.{" "}
-          <span className="text-ink-300">No</span> — play with no clock or time bonus.
-        </p>
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center sm:gap-3">
           <button
             type="button"

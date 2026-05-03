@@ -54,6 +54,12 @@ export function SubmitInitialsModal({
           maxLength={3}
           value={value}
           onChange={(e) => setValue(e.target.value.replace(/[^a-zA-Z]/g, "").slice(0, 3))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleSubmit();
+            }
+          }}
           className="mt-4 w-full rounded-xl border border-white/15 bg-ink-950/80 px-4 py-3 text-center font-mono text-2xl font-bold uppercase tracking-[0.3em] text-white outline-none ring-0 placeholder:text-ink-500 focus:border-cyan-400/50"
           placeholder="AAA"
           aria-label="Initials, one to three letters"

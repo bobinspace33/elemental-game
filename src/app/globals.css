@@ -108,6 +108,47 @@ body {
   animation: rainbowShift 3s linear infinite;
 }
 
+/* Animated rainbow frame for leaderboard #1 */
+.leaderboard-rainbow-frame {
+  padding: 2px;
+  border-radius: 0.5rem;
+  background-image: linear-gradient(
+    90deg,
+    #f87171 0%,
+    #fbbf24 16%,
+    #34d399 33%,
+    #22d3ee 50%,
+    #818cf8 66%,
+    #e879f9 83%,
+    #f87171 100%
+  );
+  background-size: 200% 100%;
+  animation: rainbowShift 3s linear infinite;
+}
+
+.leaderboard-rainbow-frame-inner {
+  border-radius: calc(0.5rem - 2px);
+}
+
+/* Daily 20 row — full rainbow stroke (matches rounded-2xl button) */
+.mode-picker-rainbow-outline {
+  width: 100%;
+  padding: 2px;
+  border-radius: 1rem;
+  background-image: linear-gradient(
+    90deg,
+    #f87171 0%,
+    #fbbf24 16%,
+    #34d399 33%,
+    #22d3ee 50%,
+    #818cf8 66%,
+    #e879f9 83%,
+    #f87171 100%
+  );
+  background-size: 200% 100%;
+  animation: rainbowShift 3s linear infinite;
+}
+
 /* Rainbow fill behind the "Use Hint" button. Width is set inline based on
    the remaining-hints fraction; the right edge contracts as hints are
    spent, leaving the dark button background showing on the right. */

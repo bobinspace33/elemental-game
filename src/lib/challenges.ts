@@ -215,11 +215,11 @@ export function buildRandomMidGameStep(): MidGameChallengeStep {
   return randomFrom(RANDOM_STEP_BUILDERS)();
 }
 
-/** Daily 20 / practice: three challenges per milestone; Full deck: one. Each step picks a random prompt type. */
+/** Daily 20 / Practice 20: three challenges per milestone. Full deck & full practice: one. */
 export function buildChallengeStepsForMilestone(
-  mode: "daily20" | "daily20Practice" | "fullDeck",
+  mode: "daily20" | "daily20Practice" | "daily20Practice20" | "fullDeck",
 ): MidGameChallengeStep[] {
-  const n = mode === "fullDeck" ? 1 : 3;
+  const n = mode === "daily20" || mode === "daily20Practice20" ? 3 : 1;
   const steps: MidGameChallengeStep[] = [];
   for (let i = 0; i < n; i++) {
     steps.push(buildRandomMidGameStep());

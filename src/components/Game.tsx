@@ -40,15 +40,41 @@ import { ElementCard } from "./ElementCard";
 import { Hand } from "./Hand";
 import { HUD } from "./HUD";
 import { DailyAlreadyPlayedModal } from "./DailyAlreadyPlayedModal";
-import { ModePicker, type LeaderboardEntry } from "./ModePicker";
+import { ModePicker, type LeaderboardEntry, type MenuMode } from "./ModePicker";
 import { PreRoundCountdown, getPreRoundStepCount, preRoundDurationMsForStep } from "./PreRoundCountdown";
 import { SubmitInitialsModal } from "./SubmitInitialsModal";
-import { PeriodicTable, PLACEMENT_OVERLAY_TOTAL_MS, SCORE_OVERLAY_COUNT_MS, SCORE_OVERLAY_FADE_MS, SCORE_OVERLAY_HOLD_MS, type PlacementInfo } from "./PeriodicTable";
+import {
+  PeriodicTable,
+  CHALLENGE_AFTER_SCORE_POP_READY_MS,
+  PLACEMENT_OVERLAY_TOTAL_MS,
+  SCORE_OVERLAY_COUNT_MS,
+  SCORE_OVERLAY_FADE_MS,
+  SCORE_OVERLAY_HOLD_MS,
+  type PlacementInfo,
+} from "./PeriodicTable";
 import { ViewportFitScale } from "./ViewportFitScale";
 import { ChallengeModal } from "./ChallengeModal";
 
-type ModePickerMode = "daily20" | "fullDeck";
-type Mode = ModePickerMode | "daily20Practice";
+type ModePickerMode = Exclude<MenuMode, "practice">;
+type Mode = ModePickerMode | "daily20Practice" | "daily20Practice20";
+
+function isNonScoringPractice(mode: Mode): boolean {
+  return mode === "daily20Practice" || mode === "daily20Practice20";
+}
+
+function isShortRound(mode: Mode): boolean {
+  return mode === "daily20" || mode === "daily20Practice20";
+}
+
+function beginRoundRestartOpts(s: GameState): {
+  daily20Unrecorded?: boolean;
+  practice20Timed?: boolean;
+} {
+  if (s.mode === "daily20Practice20") {
+    return { practice20Timed: s.practice20Timed };
+  }
+  return {};
+}
 
 type DailyAlreadyModalState = {
   variant: "server" | "browser";
@@ -189,7 +215,7 @@ interface GameState {
   deck: number[];
   hand: (number | null)[];
   placedZs: Set<number>;
-  bonusZs: Set<number>; // Daily 20: 5 random; Full Deck: 10 random — score 2x
+  bonusZs: Set<number>; // Daily 20 / Practice 20: up to 5 bonus; Full Deck / Practice Full: 10 — 2x
   hintedZs: Set<number>; // Per-card: color revealed via hints
   /** Per-card atomic-number windows (only shown once that card is colored). */
   hintPlacementByZ: Map<number, { lo: number; hi: number }>;
@@ -209,6 +235,8 @@ interface GameState {
   timeUpSealedScore: number | null;
   /** Points added at natural finish from remaining time (Daily/Full only if clock did not expire). */
   timeBonusPoints: number;
+  /** Practice 20 only: round used the 3:00 clock (affects restart and time bonus). */
+  practice20Timed: boolean;
 }
 
 function emptyState(): GameState {
@@ -235,12 +263,17 @@ function emptyState(): GameState {
     afterTimeUp: "none",
     timeUpSealedScore: null,
     timeBonusPoints: 0,
+    practice20Timed: false,
   };
 }
 
 function initialRound(
   mode: Mode,
-  options?: { dailyDateKey?: string; daily20Unrecorded?: boolean },
+  options?: {
+    dailyDateKey?: string;
+    daily20Unrecorded?: boolean;
+    practice20Timed?: boolean;
+  },
 ): GameState {
   const dailyDateKey =
     mode === "daily20" ? (options?.dailyDateKey ?? getEasternDateKey()) : null;
@@ -255,7 +288,7 @@ function initialRound(
     const nums = buildDaily20DeckNumbers(dk);
     deck = [...nums];
     bonusZs = pickDailyBonusZs(nums, BONUS_DAILY20, dk);
-  } else if (mode === "daily20Practice") {
+  } else if (mode === "daily20Practice20") {
     const allZs = ELEMENTS.map((el) => el.z);
     const shuffled = shuffle(allZs);
     deck = shuffled.slice(0, QUICK_DECK_SIZE);
@@ -271,7 +304,20 @@ function initialRound(
   for (let i = 0; i < HAND_SIZE; i++) {
     hand.push(deck.shift() ?? null);
   }
-  const durationSec = mode === "fullDeck" ? FULL_DECK_TIME_SEC : DAILY20_TIME_SEC;
+
+  const practice20Timed =
+    mode === "daily20Practice20" ? !!options?.practice20Timed : false;
+
+  const durationSec =
+    mode === "fullDeck"
+      ? FULL_DECK_TIME_SEC
+      : mode === "daily20Practice"
+        ? null
+        : mode === "daily20Practice20"
+          ? practice20Timed
+            ? DAILY20_TIME_SEC
+            : null
+          : DAILY20_TIME_SEC;
   return {
     mode,
     started: true,
@@ -291,10 +337,11 @@ function initialRound(
     exactDrops: 0,
     finished: false,
     hydrated: true,
-    timerEndMs: Date.now() + durationSec * 1000,
+    timerEndMs: durationSec != null ? Date.now() + durationSec * 1000 : null,
     afterTimeUp: "none",
     timeUpSealedScore: null,
     timeBonusPoints: 0,
+    practice20Timed,
   };
 }
 
@@ -345,6 +392,7 @@ export function Game() {
     null,
   );
   const [initialsOpen, setInitialsOpen] = useState(false);
+  const [practice20TimerPromptOpen, setPractice20TimerPromptOpen] = useState(false);
 
   useLayoutEffect(() => {
     challengeSnapshotRef.current = challenge;
@@ -439,10 +487,7 @@ export function Game() {
   );
 
   const totalForRound = useMemo(
-    () =>
-      state.mode === "daily20" || state.mode === "daily20Practice"
-        ? QUICK_DECK_SIZE
-        : ELEMENTS.length,
+    () => (isShortRound(state.mode) ? QUICK_DECK_SIZE : ELEMENTS.length),
     [state.mode],
   );
   /** No hand drags while challenge UI is open or during the placement overlay before it appears. */
@@ -465,6 +510,7 @@ export function Game() {
       !state.started ||
       state.finished ||
       state.afterTimeUp !== "none" ||
+      state.timerEndMs == null ||
       challenge != null ||
       challengeFreezeAtMs != null
     ) {
@@ -472,7 +518,7 @@ export function Game() {
     }
     const id = window.setInterval(() => setTimerTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, [state.started, state.finished, state.afterTimeUp, challenge, challengeFreezeAtMs]);
+  }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs, challenge, challengeFreezeAtMs]);
 
   useEffect(() => {
     if (challenge != null || challengeFreezeAtMs != null) return;
@@ -495,7 +541,8 @@ export function Game() {
     return () => clearInterval(id);
   }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs, challenge, challengeFreezeAtMs]);
 
-  const beginRound = useCallback((mode: Mode, opts?: { daily20Unrecorded?: boolean }) => {
+  const beginRound = useCallback(
+    (mode: Mode, opts?: { daily20Unrecorded?: boolean; practice20Timed?: boolean }) => {
     if (hudScoreDelayTimerRef.current) {
       clearTimeout(hudScoreDelayTimerRef.current);
       hudScoreDelayTimerRef.current = null;
@@ -503,9 +550,11 @@ export function Game() {
     hudScoreRafGenRef.current += 1;
     setHudScoreDisplay(0);
     setTableResetVersion((v) => v + 1);
+    setPractice20TimerPromptOpen(false);
     setState(() => {
       const next = initialRound(mode, {
         daily20Unrecorded: opts?.daily20Unrecorded,
+        practice20Timed: opts?.practice20Timed,
       });
       if (mode === "daily20" && next.dailyDateKey) {
         markDaily20BrowserAttempt(next.dailyDateKey);
@@ -530,7 +579,9 @@ export function Game() {
     }
     initialsPromptedRef.current = false;
     setInitialsOpen(false);
-  }, []);
+  },
+  [],
+);
 
   const handleTimeUpContinue = useCallback(() => {
     setState((s) =>
@@ -542,7 +593,12 @@ export function Game() {
   const handleClosePicker = useCallback(() => setShowPicker(false), []);
 
   const handleModePick = useCallback(
-    async (mode: ModePickerMode) => {
+    async (mode: MenuMode) => {
+      if (mode === "practice") {
+        setDailyAlreadyModal(null);
+        beginRound("daily20Practice");
+        return;
+      }
       if (mode === "fullDeck") {
         setDailyAlreadyModal(null);
         beginRound("fullDeck");
@@ -622,13 +678,13 @@ export function Game() {
   useEffect(() => {
     if (!state.finished || !state.started || initialsPromptedRef.current) return;
     initialsPromptedRef.current = true;
-    if (state.mode === "daily20Practice") return;
+    if (isNonScoringPractice(state.mode)) return;
     setInitialsOpen(true);
   }, [state.finished, state.started, state.mode]);
 
   const handleSubmitLeaderboardScore = useCallback(
     async (initials: string) => {
-      if (state.mode === "daily20Practice") return;
+      if (isNonScoringPractice(state.mode)) return;
       const record = state.mode === "fullDeck" || !state.daily20Unrecorded;
       const res = await fetch("/api/scores", {
         method: "POST",
@@ -678,7 +734,7 @@ export function Game() {
     challengeOpenTimerRef.current = window.setTimeout(() => {
       challengeOpenTimerRef.current = null;
       openChallengeBatch(state.mode, pauseAtMs);
-    }, PLACEMENT_OVERLAY_TOTAL_MS);
+    }, CHALLENGE_AFTER_SCORE_POP_READY_MS);
   }, [state.totalDrops, state.started, state.finished, state.mode, openChallengeBatch]);
 
   const applyChallengeCorrectReward = useCallback(
@@ -907,9 +963,7 @@ export function Game() {
       const newExact = prev.exactDrops + (result.exact ? 1 : 0);
       const finished =
         newTotal >=
-        (prev.mode === "daily20" || prev.mode === "daily20Practice"
-          ? QUICK_DECK_SIZE
-          : ELEMENTS.length);
+        (isShortRound(prev.mode) ? QUICK_DECK_SIZE : ELEMENTS.length);
 
       let timeBonus = 0;
       if (finished && prev.afterTimeUp === "none" && prev.timerEndMs != null) {
@@ -999,7 +1053,7 @@ export function Game() {
                 timerSecondsLeft !== null ? formatTimeMmSs(timerSecondsLeft) : null
               }
               onOpenMenu={handleOpenPicker}
-              onRestart={() => beginRound(state.mode)}
+              onRestart={() => beginRound(state.mode, beginRoundRestartOpts(state))}
               restartDisabled={state.mode === "daily20" && state.started}
             />
           </div>
@@ -1032,7 +1086,7 @@ export function Game() {
                 accuracy={accuracy}
                 total={state.totalDrops}
                 showPlayAgain={state.mode !== "daily20"}
-                onRestart={() => beginRound(state.mode)}
+                onRestart={() => beginRound(state.mode, beginRoundRestartOpts(state))}
                 onChangeMode={handleOpenPicker}
               />
             ) : state.started ? (
@@ -1075,8 +1129,10 @@ export function Game() {
           currentMode={
             state.started
               ? state.mode === "daily20Practice"
-                ? null
-                : state.mode
+                ? "practice"
+                : state.mode === "daily20" || state.mode === "fullDeck"
+                  ? state.mode
+                  : null
               : null
           }
           onPick={handleModePick}
@@ -1093,7 +1149,9 @@ export function Game() {
         <TimeUpModal
           score={state.timeUpSealedScore}
           onNewGame={() =>
-            state.mode === "daily20" ? handleOpenPicker() : beginRound(state.mode)
+            state.mode === "daily20"
+              ? handleOpenPicker()
+              : beginRound(state.mode, beginRoundRestartOpts(state))
           }
           onContinue={handleTimeUpContinue}
         />
@@ -1111,7 +1169,11 @@ export function Game() {
             setShowPicker(false);
             setPreRoundStep(0);
           }}
-          onPractice={() => {
+          onPractice20={() => {
+            setDailyAlreadyModal(null);
+            setPractice20TimerPromptOpen(true);
+          }}
+          onPracticeFull={() => {
             setDailyAlreadyModal(null);
             beginRound("daily20Practice");
           }}
@@ -1119,9 +1181,22 @@ export function Game() {
         />
       ) : null}
 
+      {practice20TimerPromptOpen ? (
+        <Practice20TimerModal
+          onYes={() => {
+            setPractice20TimerPromptOpen(false);
+            beginRound("daily20Practice20", { practice20Timed: true });
+          }}
+          onNo={() => {
+            setPractice20TimerPromptOpen(false);
+            beginRound("daily20Practice20", { practice20Timed: false });
+          }}
+        />
+      ) : null}
+
       {preRoundStep !== null ? <PreRoundCountdown stepIndex={preRoundStep} /> : null}
 
-      {initialsOpen && state.finished && state.started && state.mode !== "daily20Practice" ? (
+      {initialsOpen && state.finished && state.started && !isNonScoringPractice(state.mode) ? (
         <SubmitInitialsModal
           score={state.score}
           onSubmit={handleSubmitLeaderboardScore}
@@ -1135,8 +1210,10 @@ export function Game() {
             state.mode === "fullDeck"
               ? "Full Deck"
               : state.mode === "daily20Practice"
-                ? "Practice 20"
-                : "Daily 20"
+                ? "Practice"
+                : state.mode === "daily20Practice20"
+                  ? "Practice 20"
+                  : "Daily 20"
           }
           stepProgress={`${challenge.stepIndex + 1} / ${challenge.steps.length}`}
           currentStep={challenge.steps[challenge.stepIndex]!}
@@ -1229,6 +1306,57 @@ function TableDragPreview({
       }
     >
       {shell}
+    </div>
+  );
+}
+
+function Practice20TimerModal({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onNo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onNo]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Practice 20 timer option"
+      className="fixed inset-0 z-[62] flex items-center justify-center p-4"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-ink-950/90 backdrop-blur-md"
+        aria-label="Close"
+        onClick={onNo}
+      />
+      <div className="relative mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-ink-900/95 p-7 text-center shadow-2xl shadow-black/60">
+        <h2 className="text-xl font-bold text-white md:text-2xl">Practice 20</h2>
+        <p className="mt-4 text-base font-medium text-white">Do you want a timer?</p>
+        <p className="mt-3 text-sm leading-relaxed text-ink-400">
+          <span className="text-emerald-200/90">Yes</span> — 3-minute countdown; leftover seconds add to your score
+          at the end.{" "}
+          <span className="text-ink-300">No</span> — play with no clock or time bonus.
+        </p>
+        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center sm:gap-3">
+          <button
+            type="button"
+            onClick={onYes}
+            className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:brightness-110"
+          >
+            Yes
+          </button>
+          <button
+            type="button"
+            onClick={onNo}
+            className="rounded-full border border-white/20 bg-white/[0.06] px-6 py-2.5 text-sm font-medium text-white hover:bg-white/[0.12]"
+          >
+            No
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

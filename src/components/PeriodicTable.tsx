@@ -115,8 +115,24 @@ function Slot({
       data-col={col}
     >
       {placed ? (
-        flashKind === "good" ? (
-          <div className="h-full w-full origin-center animate-correctSlotPop">
+        <>
+          <span
+            className="pointer-events-none absolute left-px top-px z-10 font-mono text-[9px] font-semibold leading-none tabular-nums text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.92)] md:left-0.5 md:top-0.5 md:text-[10px]"
+            aria-hidden
+          >
+            {element.z}
+          </span>
+          {flashKind === "good" ? (
+            <div className="h-full w-full origin-center animate-correctSlotPop">
+              <ElementCard
+                element={element}
+                colored
+                size="sm"
+                compact
+                className="!h-full !w-full"
+              />
+            </div>
+          ) : (
             <ElementCard
               element={element}
               colored
@@ -124,16 +140,8 @@ function Slot({
               compact
               className="!h-full !w-full"
             />
-          </div>
-        ) : (
-          <ElementCard
-            element={element}
-            colored
-            size="sm"
-            compact
-            className="!h-full !w-full"
-          />
-        )
+          )}
+        </>
       ) : (
         <span className="font-mono text-[11px] text-white/[0.58] md:text-xs">{element.z}</span>
       )}
@@ -200,6 +208,13 @@ export const SCORE_OVERLAY_FADE_MS = SCORE_FADE_MS;
 /** Clear `placement` in Game after score pop finishes (count + hold + fade). */
 export const PLACEMENT_OVERLAY_TOTAL_MS =
   CONNECT_MS + SCORE_HOLD_MS + SCORE_FADE_MS;
+
+/**
+ * After on-table +N reaches its final value and the pre-fade hold ends.
+ * HUD total starts ramping here; bonus challenge opens here so tally can continue behind the modal.
+ */
+export const CHALLENGE_AFTER_SCORE_POP_READY_MS =
+  SCORE_OVERLAY_COUNT_MS + SCORE_OVERLAY_HOLD_MS;
 
 function ShrinkingConnectorLine({
   lineId,
@@ -376,27 +391,29 @@ function CelebrationPhraseSvg({
           <stop offset="100%" stopColor="rgb(248, 113, 113)" />
         </linearGradient>
       </defs>
-      <text
-        x="500"
-        y="86"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fill={`url(#${gradId})`}
-        stroke={`url(#${gradId})`}
-        strokeWidth={6}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        paintOrder="stroke fill"
-        style={{
-          fontSize: 80,
-          fontWeight: 900,
-          letterSpacing: "-0.02em",
-          fontFamily:
-            'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-        }}
-      >
-        {text}
-      </text>
+      <g transform="translate(500, 86) scale(2) translate(-500, -86)">
+        <text
+          x="500"
+          y="86"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill={`url(#${gradId})`}
+          stroke={`url(#${gradId})`}
+          strokeWidth={6}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          paintOrder="stroke fill"
+          style={{
+            fontSize: 80,
+            fontWeight: 900,
+            letterSpacing: "-0.02em",
+            fontFamily:
+              'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+          }}
+        >
+          {text}
+        </text>
+      </g>
     </svg>
   );
 }

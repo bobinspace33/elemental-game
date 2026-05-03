@@ -5,18 +5,22 @@ export function DailyAlreadyPlayedModal({
   variant,
   showPractice,
   onPlayUnrecorded,
-  onPractice,
+  onPractice20,
+  onPracticeFull,
   onBack,
 }: {
   allowUnrecorded: boolean;
   variant: "server" | "browser";
-  /** Browser-only: offer a non-scoring practice round. */
+  /** Browser-only: offer non-scoring practice rounds. */
   showPractice?: boolean;
   onPlayUnrecorded: () => void;
-  onPractice?: () => void;
+  onPractice20?: () => void;
+  onPracticeFull?: () => void;
   onBack: () => void;
 }) {
   const isBrowser = variant === "browser";
+  const showPracticeRow = showPractice && onPractice20 && onPracticeFull;
+
   return (
     <div
       role="dialog"
@@ -30,9 +34,8 @@ export function DailyAlreadyPlayedModal({
         <p className="mt-4 text-sm leading-relaxed text-ink-300">
           {isBrowser ? (
             <>
-              You&apos;ve already used your Daily 20 attempt on this browser today (Eastern time).
-              Come back after the next reset at midnight ET. Or use Practice below for 20 random
-              elements (not scored).
+              You&apos;ve already used your Daily 20 attempt on this browser.
+              New deck will be available at midnight ET.
             </>
           ) : (
             <>
@@ -51,14 +54,23 @@ export function DailyAlreadyPlayedModal({
               Play
             </button>
           ) : null}
-          {showPractice && onPractice ? (
-            <button
-              type="button"
-              onClick={onPractice}
-              className="rounded-full border border-emerald-400/35 bg-emerald-500/10 px-6 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
-            >
-              Practice
-            </button>
+          {showPracticeRow ? (
+            <>
+              <button
+                type="button"
+                onClick={onPractice20}
+                className="rounded-full border border-emerald-400/35 bg-emerald-500/10 px-6 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
+              >
+                Practice 20
+              </button>
+              <button
+                type="button"
+                onClick={onPracticeFull}
+                className="rounded-full border border-emerald-400/35 bg-emerald-500/10 px-6 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/20"
+              >
+                Practice Full
+              </button>
+            </>
           ) : null}
           <button
             type="button"

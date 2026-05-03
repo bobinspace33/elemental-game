@@ -9,7 +9,6 @@ import {
   MouseSensor,
   PointerSensor,
   TouchSensor,
-  pointerWithin,
   rectIntersection,
   useSensor,
   useSensors,
@@ -30,8 +29,10 @@ import {
 } from "@/lib/challenges";
 import {
   buildDaily20DeckNumbers,
-  getUtcDateKey,
+  getEasternDateKey,
+  markDaily20BrowserAttempt,
   pickDailyBonusZs,
+  readDaily20BrowserAttemptDate,
 } from "@/lib/dailyDeck";
 import { zPlacementWindow } from "@/lib/placementHint";
 import { computeScore, nextStreak } from "@/lib/scoring";
@@ -46,7 +47,13 @@ import { PeriodicTable, PLACEMENT_OVERLAY_TOTAL_MS, SCORE_OVERLAY_COUNT_MS, SCOR
 import { ViewportFitScale } from "./ViewportFitScale";
 import { ChallengeModal } from "./ChallengeModal";
 
-type Mode = "daily20" | "fullDeck";
+type ModePickerMode = "daily20" | "fullDeck";
+type Mode = ModePickerMode | "daily20Practice";
+
+type DailyAlreadyModalState = {
+  variant: "server" | "browser";
+  allowUnrecorded: boolean;
+};
 
 const CELEBRATION_PHRASES = [
   "Got it!",
@@ -103,9 +110,6 @@ const CHALLENGE_EVERY_N_PLACEMENTS = 10;
 /** Slot-sized drag preview when `slotPx` is not yet measured from the table. */
 const FALLBACK_SLOT_PX = 67;
 
-/** Require pointer in inner ~70% of slot before hover “sticks”; then full rect fallback. */
-const SLOT_POINTER_INSET = 0.18;
-
 type ClientRectLike = {
   top: number;
   left: number;
@@ -114,19 +118,6 @@ type ClientRectLike = {
   width: number;
   height: number;
 };
-
-function insetClientRect(rect: ClientRectLike, insetFraction: number): ClientRectLike {
-  const dx = rect.width * insetFraction;
-  const dy = rect.height * insetFraction;
-  return {
-    top: rect.top + dy,
-    left: rect.left + dx,
-    bottom: rect.bottom - dy,
-    right: rect.right - dx,
-    width: rect.width - 2 * dx,
-    height: rect.height - 2 * dy,
-  };
-}
 
 function isPointerInRect(
   pointer: { x: number; y: number },
@@ -140,29 +131,30 @@ function isPointerInRect(
   );
 }
 
+/**
+ * Pointer-driven slot targeting only. Avoids rectIntersection / pointerWithin on the
+ * draggable node (large hand card + grab offset), which made `isOver` follow the wrong cell.
+ */
 const slotCollisionDetection: CollisionDetection = (args) => {
   const { droppableContainers, droppableRects, pointerCoordinates } = args;
   if (pointerCoordinates) {
-    const innerHits: CollisionDescriptor[] = [];
+    const hits: CollisionDescriptor[] = [];
     for (const d of droppableContainers) {
       if (!String(d.id).startsWith("slot-")) continue;
       const r = droppableRects.get(d.id);
       if (!r) continue;
-      const inner = insetClientRect(r, SLOT_POINTER_INSET);
-      if (!isPointerInRect(pointerCoordinates, inner)) continue;
-      const cx = (inner.left + inner.right) / 2;
-      const cy = (inner.top + inner.bottom) / 2;
+      if (!isPointerInRect(pointerCoordinates, r)) continue;
+      const cx = (r.left + r.right) / 2;
+      const cy = (r.top + r.bottom) / 2;
       const dist = Math.hypot(pointerCoordinates.x - cx, pointerCoordinates.y - cy);
-      innerHits.push({
+      hits.push({
         id: d.id,
         data: { droppableContainer: d, value: dist },
       });
     }
-    innerHits.sort((a, b) => (a.data.value as number) - (b.data.value as number));
-    if (innerHits.length > 0) return innerHits;
+    hits.sort((a, b) => (a.data.value as number) - (b.data.value as number));
+    return hits;
   }
-  const pointerHits = pointerWithin(args);
-  if (pointerHits.length > 0) return pointerHits;
   return rectIntersection(args);
 };
 
@@ -190,7 +182,7 @@ function pickBonusZsFromPool(deckPool: number[], cap: number): Set<number> {
 interface GameState {
   mode: Mode;
   started: boolean; // true after user picks a mode and the round is active
-  /** UTC date key for Daily 20 puzzle + leaderboards; null in Full Deck. */
+  /** Eastern (US) calendar date key for Daily 20 puzzle + leaderboards; null in Full Deck. */
   dailyDateKey: string | null;
   /** True when replaying Daily 20 after already submitting today — score not recorded. */
   daily20Unrecorded: boolean;
@@ -251,7 +243,7 @@ function initialRound(
   options?: { dailyDateKey?: string; daily20Unrecorded?: boolean },
 ): GameState {
   const dailyDateKey =
-    mode === "daily20" ? (options?.dailyDateKey ?? getUtcDateKey()) : null;
+    mode === "daily20" ? (options?.dailyDateKey ?? getEasternDateKey()) : null;
   const daily20Unrecorded =
     mode === "daily20" ? !!options?.daily20Unrecorded : false;
 
@@ -263,6 +255,11 @@ function initialRound(
     const nums = buildDaily20DeckNumbers(dk);
     deck = [...nums];
     bonusZs = pickDailyBonusZs(nums, BONUS_DAILY20, dk);
+  } else if (mode === "daily20Practice") {
+    const allZs = ELEMENTS.map((el) => el.z);
+    const shuffled = shuffle(allZs);
+    deck = shuffled.slice(0, QUICK_DECK_SIZE);
+    bonusZs = pickBonusZsFromPool(deck, BONUS_DAILY20);
   } else {
     const allZs = ELEMENTS.map((el) => el.z);
     const shuffled = shuffle(allZs);
@@ -274,7 +271,7 @@ function initialRound(
   for (let i = 0; i < HAND_SIZE; i++) {
     hand.push(deck.shift() ?? null);
   }
-  const durationSec = mode === "daily20" ? DAILY20_TIME_SEC : FULL_DECK_TIME_SEC;
+  const durationSec = mode === "fullDeck" ? FULL_DECK_TIME_SEC : DAILY20_TIME_SEC;
   return {
     mode,
     started: true,
@@ -339,12 +336,14 @@ export function Game() {
   const dailyUnrecordedForNextRoundRef = useRef(false);
   const initialsPromptedRef = useRef(false);
 
-  const [leaderboardTab, setLeaderboardTab] = useState<Mode>("daily20");
+  const [leaderboardTab, setLeaderboardTab] = useState<ModePickerMode>("daily20");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardDb, setLeaderboardDb] = useState(true);
   const [preRoundStep, setPreRoundStep] = useState<number | null>(null);
-  const [showDailyAlready, setShowDailyAlready] = useState(false);
+  const [dailyAlreadyModal, setDailyAlreadyModal] = useState<DailyAlreadyModalState | null>(
+    null,
+  );
   const [initialsOpen, setInitialsOpen] = useState(false);
 
   useLayoutEffect(() => {
@@ -440,9 +439,15 @@ export function Game() {
   );
 
   const totalForRound = useMemo(
-    () => (state.mode === "daily20" ? QUICK_DECK_SIZE : ELEMENTS.length),
+    () =>
+      state.mode === "daily20" || state.mode === "daily20Practice"
+        ? QUICK_DECK_SIZE
+        : ELEMENTS.length,
     [state.mode],
   );
+  /** No hand drags while challenge UI is open or during the placement overlay before it appears. */
+  const handDragDisabled =
+    challenge != null || (challengeFreezeAtMs != null && challenge == null);
   const remaining = totalForRound - state.totalDrops;
 
   const timerFreezeAtMs = challenge?.pauseAtMs ?? challengeFreezeAtMs;
@@ -498,11 +503,15 @@ export function Game() {
     hudScoreRafGenRef.current += 1;
     setHudScoreDisplay(0);
     setTableResetVersion((v) => v + 1);
-    setState(
-      initialRound(mode, {
+    setState(() => {
+      const next = initialRound(mode, {
         daily20Unrecorded: opts?.daily20Unrecorded,
-      }),
-    );
+      });
+      if (mode === "daily20" && next.dailyDateKey) {
+        markDaily20BrowserAttempt(next.dailyDateKey);
+      }
+      return next;
+    });
     setTimerTick(0);
     setHintTrayPaddingRight(null);
     setPlacement({});
@@ -511,7 +520,7 @@ export function Game() {
     pointerOverTrayRef.current = true;
     setShowPicker(false);
     setPreRoundStep(null);
-    setShowDailyAlready(false);
+    setDailyAlreadyModal(null);
     setChallenge(null);
     challengeMilestoneRef.current = null;
     setChallengeFreezeAtMs(null);
@@ -533,25 +542,29 @@ export function Game() {
   const handleClosePicker = useCallback(() => setShowPicker(false), []);
 
   const handleModePick = useCallback(
-    async (mode: Mode) => {
+    async (mode: ModePickerMode) => {
       if (mode === "fullDeck") {
-        setShowDailyAlready(false);
+        setDailyAlreadyModal(null);
         beginRound("fullDeck");
         return;
       }
       try {
-        const dk = getUtcDateKey();
+        const dk = getEasternDateKey();
+        if (readDaily20BrowserAttemptDate() === dk) {
+          setDailyAlreadyModal({ variant: "browser", allowUnrecorded: false });
+          return;
+        }
         const r = await fetch(`/api/scores/check-daily?date=${encodeURIComponent(dk)}`);
         const j = (await r.json()) as { played?: boolean; db?: boolean };
         if (j.played && j.db) {
-          setShowDailyAlready(true);
+          setDailyAlreadyModal({ variant: "server", allowUnrecorded: true });
           return;
         }
       } catch {
         // offline or API error — allow normal daily start
       }
       dailyUnrecordedForNextRoundRef.current = false;
-      setShowDailyAlready(false);
+      setDailyAlreadyModal(null);
       setShowPicker(false);
       setPreRoundStep(0);
     },
@@ -580,7 +593,7 @@ export function Game() {
     if (!showPicker) return;
     let cancelled = false;
     setLeaderboardLoading(true);
-    const dk = getUtcDateKey();
+    const dk = getEasternDateKey();
     const q =
       leaderboardTab === "daily20"
         ? `mode=daily20&date=${encodeURIComponent(dk)}`
@@ -607,14 +620,15 @@ export function Game() {
   }, [showPicker, leaderboardTab]);
 
   useEffect(() => {
-    if (state.finished && state.started && !initialsPromptedRef.current) {
-      initialsPromptedRef.current = true;
-      setInitialsOpen(true);
-    }
-  }, [state.finished, state.started]);
+    if (!state.finished || !state.started || initialsPromptedRef.current) return;
+    initialsPromptedRef.current = true;
+    if (state.mode === "daily20Practice") return;
+    setInitialsOpen(true);
+  }, [state.finished, state.started, state.mode]);
 
   const handleSubmitLeaderboardScore = useCallback(
     async (initials: string) => {
+      if (state.mode === "daily20Practice") return;
       const record = state.mode === "fullDeck" || !state.daily20Unrecorded;
       const res = await fetch("/api/scores", {
         method: "POST",
@@ -869,7 +883,14 @@ export function Game() {
 
       const scoreFrozen = prev.afterTimeUp === "continued";
       const isBonus = prev.bonusZs.has(z);
-      const result = computeScore(z, droppedSlotZ, prev.streak, isBonus);
+      const result = computeScore(
+        z,
+        droppedSlotZ,
+        prev.streak,
+        isBonus,
+        trueAt.col,
+        placedAt.col,
+      );
       const points = scoreFrozen ? 0 : result.finalPoints;
       const newStreak = scoreFrozen ? prev.streak : nextStreak(prev.streak, result.exact);
 
@@ -885,7 +906,10 @@ export function Game() {
       const newTotal = prev.totalDrops + 1;
       const newExact = prev.exactDrops + (result.exact ? 1 : 0);
       const finished =
-        newTotal >= (prev.mode === "daily20" ? QUICK_DECK_SIZE : ELEMENTS.length);
+        newTotal >=
+        (prev.mode === "daily20" || prev.mode === "daily20Practice"
+          ? QUICK_DECK_SIZE
+          : ELEMENTS.length);
 
       let timeBonus = 0;
       if (finished && prev.afterTimeUp === "none" && prev.timerEndMs != null) {
@@ -1020,6 +1044,7 @@ export function Game() {
                 hintsRemaining={state.hintsRemaining}
                 hintTrayPaddingRight={hintTrayPaddingRight}
                 onUseHint={handleUseHint}
+                dragDisabled={handDragDisabled}
               />
             ) : (
               <div className="h-14 shrink-0" aria-hidden />
@@ -1047,7 +1072,13 @@ export function Game() {
 
       {showPicker && (
         <ModePicker
-          currentMode={state.started ? state.mode : null}
+          currentMode={
+            state.started
+              ? state.mode === "daily20Practice"
+                ? null
+                : state.mode
+              : null
+          }
           onPick={handleModePick}
           onClose={state.started ? handleClosePicker : undefined}
           leaderboardTab={leaderboardTab}
@@ -1069,21 +1100,28 @@ export function Game() {
       ) : null}
     </DndContext>
 
-      {showDailyAlready ? (
+      {dailyAlreadyModal ? (
         <DailyAlreadyPlayedModal
+          allowUnrecorded={dailyAlreadyModal.allowUnrecorded}
+          variant={dailyAlreadyModal.variant}
+          showPractice={dailyAlreadyModal.variant === "browser"}
           onPlayUnrecorded={() => {
-            setShowDailyAlready(false);
+            setDailyAlreadyModal(null);
             dailyUnrecordedForNextRoundRef.current = true;
             setShowPicker(false);
             setPreRoundStep(0);
           }}
-          onBack={() => setShowDailyAlready(false)}
+          onPractice={() => {
+            setDailyAlreadyModal(null);
+            beginRound("daily20Practice");
+          }}
+          onBack={() => setDailyAlreadyModal(null)}
         />
       ) : null}
 
       {preRoundStep !== null ? <PreRoundCountdown stepIndex={preRoundStep} /> : null}
 
-      {initialsOpen && state.finished && state.started ? (
+      {initialsOpen && state.finished && state.started && state.mode !== "daily20Practice" ? (
         <SubmitInitialsModal
           score={state.score}
           onSubmit={handleSubmitLeaderboardScore}
@@ -1093,7 +1131,13 @@ export function Game() {
       {challenge != null ? (
         <ChallengeModal
           open
-          modeLabel={state.mode === "daily20" ? "Daily 20" : "Full Deck"}
+          modeLabel={
+            state.mode === "fullDeck"
+              ? "Full Deck"
+              : state.mode === "daily20Practice"
+                ? "Practice 20"
+                : "Daily 20"
+          }
           stepProgress={`${challenge.stepIndex + 1} / ${challenge.steps.length}`}
           currentStep={challenge.steps[challenge.stepIndex]!}
           phase={challenge.phase}

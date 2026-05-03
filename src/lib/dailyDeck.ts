@@ -2,9 +2,44 @@ import { ELEMENTS } from "./elements";
 
 export const DAILY20_DECK_SIZE = 20;
 
-/** UTC calendar date `YYYY-MM-DD` — shared daily puzzle key. */
+/** UTC calendar date `YYYY-MM-DD` (for non-daily use). */
 export function getUtcDateKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
+}
+
+const EASTERN_TZ = "America/New_York";
+
+/**
+ * Calendar date in US Eastern time `YYYY-MM-DD` — Daily 20 rolls over at midnight ET.
+ */
+export function getEasternDateKey(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: EASTERN_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** Client: one Daily 20 attempt per browser per Eastern calendar day. */
+export const DAILY20_BROWSER_ATTEMPT_LS = "elemental.daily20.easternAttemptDate";
+
+export function readDaily20BrowserAttemptDate(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(DAILY20_BROWSER_ATTEMPT_LS);
+  } catch {
+    return null;
+  }
+}
+
+export function markDaily20BrowserAttempt(dateKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DAILY20_BROWSER_ATTEMPT_LS, dateKey);
+  } catch {
+    /* private mode / quota */
+  }
 }
 
 function hashStringToSeed(s: string): number {
@@ -37,9 +72,9 @@ export function seededShuffle<T>(items: readonly T[], seed: number): T[] {
   return arr;
 }
 
-/** Deterministic order of 20 Z values for the given UTC day (same for all players). */
+/** Deterministic order of 20 Z values for the given calendar day key (same for all players). */
 export function buildDaily20DeckNumbers(dateKey: string): number[] {
-  const seed = hashStringToSeed(`eleMENTAL-daily20-deck-v2-${dateKey}`);
+  const seed = hashStringToSeed(`eleMENTAL-daily20-deck-v3-${dateKey}`);
   const allZs = ELEMENTS.map((e) => e.z);
   return seededShuffle(allZs, seed).slice(0, DAILY20_DECK_SIZE);
 }
@@ -50,7 +85,7 @@ export function pickDailyBonusZs(
   cap: number,
   dateKey: string,
 ): Set<number> {
-  const seed = hashStringToSeed(`eleMENTAL-daily20-bonus-v2-${dateKey}`);
+  const seed = hashStringToSeed(`eleMENTAL-daily20-bonus-v3-${dateKey}`);
   const shuffled = seededShuffle(deckPool, seed);
   return new Set(shuffled.slice(0, Math.min(cap, shuffled.length)));
 }

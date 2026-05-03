@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getUtcDateKey } from "@/lib/dailyDeck";
+import { getEasternDateKey } from "@/lib/dailyDeck";
 import {
   FULL_DECK_LEADER_KEY,
   getRequestMeta,
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     mode === "daily20"
       ? dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
         ? dateParam
-        : getUtcDateKey()
+        : getEasternDateKey()
       : FULL_DECK_LEADER_KEY;
 
   if (!sql) {
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     const dayKey =
       typeof o.dailyDateKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.dailyDateKey)
         ? o.dailyDateKey
-        : getUtcDateKey();
+        : getEasternDateKey();
 
     if (record) {
       const existing = await sql`

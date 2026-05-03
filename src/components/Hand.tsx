@@ -15,6 +15,7 @@ interface DraggableCardProps {
   isBonus: boolean;
   isHinted: boolean;
   zWindow?: ZWindow;
+  dragDisabled: boolean;
 }
 
 function DraggableCard({
@@ -22,11 +23,13 @@ function DraggableCard({
   isBonus,
   isHinted,
   zWindow,
+  dragDisabled,
 }: DraggableCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `card-${element.z}`,
       data: { z: element.z, isBonus },
+      disabled: dragDisabled,
     });
 
   const style: React.CSSProperties = {
@@ -46,13 +49,14 @@ function DraggableCard({
       style={style}
       data-dnd-draggable
       className={[
-        "group relative cursor-grab active:cursor-grabbing",
-        "rounded-2xl p-1 outline-none",
-        "transition-transform duration-200 hover:-translate-y-1",
-        "focus-visible:ring-2 focus-visible:ring-cyan-400/70",
+        "group relative rounded-2xl p-1 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70",
+        dragDisabled
+          ? "cursor-not-allowed opacity-55"
+          : "cursor-grab transition-transform duration-200 hover:-translate-y-1 active:cursor-grabbing",
       ].join(" ")}
       {...listeners}
       {...attributes}
+      aria-disabled={dragDisabled || undefined}
       aria-label={`Drag ${element.name} (${element.symbol})${isBonus ? " — 2x bonus" : ""}${isHinted ? " — color revealed" : ""}${rangeNote}`}
     >
       {isBonus ? (
@@ -141,6 +145,8 @@ interface HandProps {
   /** From viewport: `innerWidth - tableRect.right`, for hint right edge = table right edge. */
   hintTrayPaddingRight: number | null;
   onUseHint: () => void;
+  /** When true, table drags are suspended (e.g. bonus challenge opening). */
+  dragDisabled: boolean;
 }
 
 export function Hand({
@@ -151,6 +157,7 @@ export function Hand({
   hintsRemaining,
   hintTrayPaddingRight,
   onUseHint,
+  dragDisabled,
 }: HandProps) {
   return (
     <div className="relative w-full min-h-[148px] pb-1 md:min-h-[152px]">
@@ -201,6 +208,7 @@ export function Hand({
                 isBonus={bonusZs.has(el.z)}
                 isHinted={hinted}
                 zWindow={win}
+                dragDisabled={dragDisabled}
               />
             </div>
           );

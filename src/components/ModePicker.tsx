@@ -77,7 +77,7 @@ export function ModePicker({
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ModeCard
             title="Daily 20"
-            blurb="Shared 20-element puzzle each UTC day. 3-minute timer."
+            blurb="Compete globally with a shared 20-element deck each day! 3-minute timer."
             accent="from-cyan-500/80 to-emerald-500/80"
             isCurrent={currentMode === "daily20"}
             onClick={() => onPick("daily20")}

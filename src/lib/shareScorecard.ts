@@ -36,7 +36,7 @@ export function buildDailySharePlainText(params: {
   return [
     `eleMENTAL — ${sub}`,
     "",
-    `I scored ${params.score.toLocaleString()} on today's eleMENTAL puzzle!`,
+    `I scored ${params.score.toLocaleString()} on today's eleMENTAL quiz!`,
     "",
     params.exactZs.length > 0
       ? `Exact placements: ${params.exactZs.length}`
@@ -168,7 +168,7 @@ export function renderDailyShareScorecardPng(
 
   const prefix = "I scored ";
   const scoreStr = params.score.toLocaleString();
-  const suffix = " on today's eleMENTAL puzzle!";
+  const suffix = " on today's eleMENTAL quiz!";
 
   ctx.textBaseline = "top";
   ctx.font = "600 17px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";

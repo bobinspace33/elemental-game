@@ -34,6 +34,7 @@ import {
   pickDailyBonusZs,
   readDaily20BrowserAttemptDate,
 } from "@/lib/dailyDeck";
+import { COPYRIGHT_FOOTER } from "@/lib/appMeta";
 import { copyDailyShareToClipboard } from "@/lib/shareScorecard";
 import { zPlacementWindow } from "@/lib/placementHint";
 import { computeScore, nextStreak } from "@/lib/scoring";
@@ -1677,7 +1678,7 @@ function Big({ label, value }: { label: string; value: string }) {
 function Footer() {
   return (
     <footer className="mt-1.5 flex items-center justify-end px-1 text-[10px] text-ink-300 md:mt-2 md:text-[11px]">
-      <span className="font-mono opacity-60">© Bob Kelly 2026 • v0.2.1</span>
+      <span className="font-mono opacity-60">{COPYRIGHT_FOOTER}</span>
     </footer>
   );
 }

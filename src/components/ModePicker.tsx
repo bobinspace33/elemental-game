@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { COPYRIGHT_FOOTER } from "@/lib/appMeta";
 import { countryCodeToFlagEmoji } from "@/lib/countryFlag";
 
 /** Modes shown in the menu (includes practice). */
@@ -193,6 +194,13 @@ export function ModePicker({
           </button>
         )}
       </div>
+
+      <p
+        className="pointer-events-none fixed bottom-[max(0.35rem,env(safe-area-inset-bottom))] right-[max(0.35rem,env(safe-area-inset-right))] z-[55] px-1 text-[10px] text-ink-300 md:text-[11px]"
+        aria-hidden
+      >
+        <span className="font-mono opacity-60">{COPYRIGHT_FOOTER}</span>
+      </p>
     </div>
   );
 }

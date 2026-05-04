@@ -1,0 +1,13 @@
+---
+description: Ask about version bumps when changes are more than trivial maintenance.
+alwaysApply: true
+---
+
+# App version and release prompts
+
+When you implement **non-trivial** work on this project—**new features**, **gameplay or scoring changes**, **new modes**, **meaningful refactors**, or other updates a player would notice—**before** wrapping up, **ask the user** whether they want you to **bump the displayed version**.
+
+- Primary UI version string: `src/lib/appMeta.ts` (`APP_VERSION_DISPLAY` and thus `COPYRIGHT_FOOTER`).
+- If they want semver in `package.json` aligned as well, update that in the same pass.
+
+Do **not** ask for tiny edits only (copy tweaks, lint fixes, one-line CSS, typo fixes, comments-only).

@@ -34,6 +34,7 @@ import {
   pickDailyBonusZs,
   readDaily20BrowserAttemptDate,
 } from "@/lib/dailyDeck";
+import { copyDailyShareToClipboard } from "@/lib/shareScorecard";
 import { zPlacementWindow } from "@/lib/placementHint";
 import { computeScore, nextStreak } from "@/lib/scoring";
 import { ElementCard } from "./ElementCard";
@@ -69,9 +70,18 @@ function isShortRound(mode: Mode): boolean {
 function beginRoundRestartOpts(s: GameState): {
   daily20Unrecorded?: boolean;
   practice20Timed?: boolean;
+  dailyDateKey?: string;
+  daily20Timed?: boolean;
 } {
   if (s.mode === "daily20Practice20") {
     return { practice20Timed: s.practice20Timed };
+  }
+  if (s.mode === "daily20" && s.daily20Unrecorded && s.dailyDateKey) {
+    return {
+      daily20Unrecorded: true,
+      dailyDateKey: s.dailyDateKey,
+      daily20Timed: s.daily20Timed,
+    };
   }
   return {};
 }
@@ -237,6 +247,10 @@ interface GameState {
   timeBonusPoints: number;
   /** Practice 20 only: round used the 3:00 clock (affects restart and time bonus). */
   practice20Timed: boolean;
+  /** Daily 20: z values placed in correct cells, in drop order (share + diagnostics). */
+  exactOrderZs: number[];
+  /** Daily 20 unrecorded replay: when false, no countdown or time bonus. */
+  daily20Timed: boolean;
 }
 
 function emptyState(): GameState {
@@ -264,6 +278,8 @@ function emptyState(): GameState {
     timeUpSealedScore: null,
     timeBonusPoints: 0,
     practice20Timed: false,
+    exactOrderZs: [],
+    daily20Timed: true,
   };
 }
 
@@ -273,12 +289,18 @@ function initialRound(
     dailyDateKey?: string;
     daily20Unrecorded?: boolean;
     practice20Timed?: boolean;
+    /** When daily + unrecorded: omit timer and time bonus if false. */
+    daily20Timed?: boolean;
   },
 ): GameState {
   const dailyDateKey =
     mode === "daily20" ? (options?.dailyDateKey ?? getEasternDateKey()) : null;
   const daily20Unrecorded =
     mode === "daily20" ? !!options?.daily20Unrecorded : false;
+  const daily20Timed =
+    mode === "daily20"
+      ? !daily20Unrecorded || options?.daily20Timed !== false
+      : false;
 
   let deck: number[] = [];
   let bonusZs: Set<number>;
@@ -317,7 +339,9 @@ function initialRound(
           ? practice20Timed
             ? DAILY20_TIME_SEC
             : null
-          : DAILY20_TIME_SEC;
+          : daily20Timed
+            ? DAILY20_TIME_SEC
+            : null;
   return {
     mode,
     started: true,
@@ -342,6 +366,8 @@ function initialRound(
     timeUpSealedScore: null,
     timeBonusPoints: 0,
     practice20Timed,
+    exactOrderZs: [],
+    daily20Timed,
   };
 }
 
@@ -393,6 +419,7 @@ export function Game() {
   );
   const [initialsOpen, setInitialsOpen] = useState(false);
   const [practice20TimerPromptOpen, setPractice20TimerPromptOpen] = useState(false);
+  const [dailyReplayTimerPromptOpen, setDailyReplayTimerPromptOpen] = useState(false);
 
   useLayoutEffect(() => {
     challengeSnapshotRef.current = challenge;
@@ -542,7 +569,15 @@ export function Game() {
   }, [state.started, state.finished, state.afterTimeUp, state.timerEndMs, challenge, challengeFreezeAtMs]);
 
   const beginRound = useCallback(
-    (mode: Mode, opts?: { daily20Unrecorded?: boolean; practice20Timed?: boolean }) => {
+    (
+      mode: Mode,
+      opts?: {
+        daily20Unrecorded?: boolean;
+        practice20Timed?: boolean;
+        dailyDateKey?: string;
+        daily20Timed?: boolean;
+      },
+    ) => {
     if (hudScoreDelayTimerRef.current) {
       clearTimeout(hudScoreDelayTimerRef.current);
       hudScoreDelayTimerRef.current = null;
@@ -551,10 +586,13 @@ export function Game() {
     setHudScoreDisplay(0);
     setTableResetVersion((v) => v + 1);
     setPractice20TimerPromptOpen(false);
+    setDailyReplayTimerPromptOpen(false);
     setState(() => {
       const next = initialRound(mode, {
         daily20Unrecorded: opts?.daily20Unrecorded,
         practice20Timed: opts?.practice20Timed,
+        dailyDateKey: opts?.dailyDateKey,
+        daily20Timed: opts?.daily20Timed,
       });
       if (mode === "daily20" && next.dailyDateKey) {
         markDaily20BrowserAttempt(next.dailyDateKey);
@@ -679,8 +717,9 @@ export function Game() {
     if (!state.finished || !state.started || initialsPromptedRef.current) return;
     initialsPromptedRef.current = true;
     if (isNonScoringPractice(state.mode)) return;
+    if (state.mode === "daily20" && state.daily20Unrecorded) return;
     setInitialsOpen(true);
-  }, [state.finished, state.started, state.mode]);
+  }, [state.finished, state.started, state.mode, state.daily20Unrecorded]);
 
   const handleSubmitLeaderboardScore = useCallback(
     async (initials: string) => {
@@ -1018,6 +1057,7 @@ export function Game() {
           : Math.max(prev.bestStreak, newStreak),
         totalDrops: newTotal,
         exactDrops: newExact,
+        exactOrderZs: result.exact ? [...prev.exactOrderZs, z] : prev.exactOrderZs,
         finished,
         timeBonusPoints: finished ? timeBonus : prev.timeBonusPoints,
       };
@@ -1086,6 +1126,17 @@ export function Game() {
                 accuracy={accuracy}
                 total={state.totalDrops}
                 showPlayAgain={state.mode !== "daily20"}
+                showDailyReplay={state.mode === "daily20"}
+                onDailyReplay={() => setDailyReplayTimerPromptOpen(true)}
+                showShare={
+                  state.mode === "daily20" &&
+                  !state.daily20Unrecorded &&
+                  state.dailyDateKey != null
+                }
+                shareScore={state.score}
+                shareDateKey={state.dailyDateKey ?? ""}
+                exactOrderZs={state.exactOrderZs}
+                bonusZs={state.bonusZs}
                 onRestart={() => beginRound(state.mode, beginRoundRestartOpts(state))}
                 onChangeMode={handleOpenPicker}
               />
@@ -1181,15 +1232,38 @@ export function Game() {
         />
       ) : null}
 
-      {practice20TimerPromptOpen ? (
+      {practice20TimerPromptOpen || dailyReplayTimerPromptOpen ? (
         <Practice20TimerModal
+          title={dailyReplayTimerPromptOpen ? "Replay" : "Practice 20"}
           onYes={() => {
+            const isReplay = dailyReplayTimerPromptOpen;
+            const dk = state.dailyDateKey;
             setPractice20TimerPromptOpen(false);
-            beginRound("daily20Practice20", { practice20Timed: true });
+            setDailyReplayTimerPromptOpen(false);
+            if (isReplay && dk) {
+              beginRound("daily20", {
+                daily20Unrecorded: true,
+                dailyDateKey: dk,
+                daily20Timed: true,
+              });
+            } else if (!isReplay) {
+              beginRound("daily20Practice20", { practice20Timed: true });
+            }
           }}
           onNo={() => {
+            const isReplay = dailyReplayTimerPromptOpen;
+            const dk = state.dailyDateKey;
             setPractice20TimerPromptOpen(false);
-            beginRound("daily20Practice20", { practice20Timed: false });
+            setDailyReplayTimerPromptOpen(false);
+            if (isReplay && dk) {
+              beginRound("daily20", {
+                daily20Unrecorded: true,
+                dailyDateKey: dk,
+                daily20Timed: false,
+              });
+            } else if (!isReplay) {
+              beginRound("daily20Practice20", { practice20Timed: false });
+            }
           }}
         />
       ) : null}
@@ -1310,7 +1384,15 @@ function TableDragPreview({
   );
 }
 
-function Practice20TimerModal({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
+function Practice20TimerModal({
+  title,
+  onYes,
+  onNo,
+}: {
+  title: string;
+  onYes: () => void;
+  onNo: () => void;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onNo();
@@ -1323,7 +1405,7 @@ function Practice20TimerModal({ onYes, onNo }: { onYes: () => void; onNo: () => 
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Practice 20 timer option"
+      aria-label={`${title} timer option`}
       className="fixed inset-0 z-[62] flex items-center justify-center p-4"
     >
       <button
@@ -1333,7 +1415,7 @@ function Practice20TimerModal({ onYes, onNo }: { onYes: () => void; onNo: () => 
         onClick={onNo}
       />
       <div className="relative mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-ink-900/95 p-7 text-center shadow-2xl shadow-black/60">
-        <h2 className="text-xl font-bold text-white md:text-2xl">Practice 20</h2>
+        <h2 className="text-xl font-bold text-white md:text-2xl">{title}</h2>
         <p className="mt-4 text-base font-medium text-white">Do you want a timer?</p>
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center sm:gap-3">
           <button
@@ -1412,6 +1494,13 @@ function FinishedPanel({
   accuracy,
   total,
   showPlayAgain,
+  showDailyReplay,
+  onDailyReplay,
+  showShare,
+  shareScore,
+  shareDateKey,
+  exactOrderZs,
+  bonusZs,
   onRestart,
   onChangeMode,
 }: {
@@ -1421,12 +1510,29 @@ function FinishedPanel({
   accuracy: number;
   total: number;
   showPlayAgain: boolean;
+  showDailyReplay: boolean;
+  onDailyReplay: () => void;
+  showShare: boolean;
+  shareScore: number;
+  shareDateKey: string;
+  exactOrderZs: readonly number[];
+  bonusZs: ReadonlySet<number>;
   onRestart: () => void;
   onChangeMode: () => void;
 }) {
   const baseScore = score - timeBonusPoints;
   const [displayScore, setDisplayScore] = useState(score);
   const [bonusShow, setBonusShow] = useState(0);
+  const [shareCopiedPhase, setShareCopiedPhase] = useState<"hidden" | "show" | "fade">(
+    "hidden",
+  );
+  const shareTimersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      shareTimersRef.current.forEach((id) => window.clearTimeout(id));
+    };
+  }, []);
 
   useEffect(() => {
     if (timeBonusPoints <= 0) {
@@ -1454,52 +1560,104 @@ function FinishedPanel({
     };
   }, [score, timeBonusPoints, baseScore]);
 
+  const handleShare = useCallback(async () => {
+    try {
+      await copyDailyShareToClipboard({
+        score: shareScore,
+        dateKey: shareDateKey,
+        exactZs: exactOrderZs,
+        bonusZs,
+      });
+    } catch {
+      /* clipboard denied / unsupported */
+    }
+    shareTimersRef.current.forEach((id) => window.clearTimeout(id));
+    shareTimersRef.current = [];
+    setShareCopiedPhase("show");
+    shareTimersRef.current.push(
+      window.setTimeout(() => setShareCopiedPhase("fade"), 5000),
+    );
+    shareTimersRef.current.push(
+      window.setTimeout(() => setShareCopiedPhase("hidden"), 5700),
+    );
+  }, [shareScore, shareDateKey, exactOrderZs, bonusZs]);
+
   return (
     <div className="max-h-[min(340px,38svh)] w-full overflow-y-auto overscroll-contain px-1 [-webkit-overflow-scrolling:touch]">
-      <div className="mx-auto w-full max-w-lg rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center md:max-w-xl md:p-5">
-        <h2 className="text-xl font-bold md:text-2xl">
-          <span className="title-grad">Round complete</span>
-        </h2>
-        {timeBonusPoints > 0 ? (
-          <div className="mt-3 space-y-1">
-            <p className="text-xs uppercase tracking-widest text-ink-400">
-              Time bonus
-              <span className="normal-case text-ink-500"> · 50 pts/sec left</span>
-            </p>
-            <p
-              className="font-mono text-xl font-bold text-emerald-300 tabular-nums md:text-2xl"
-              aria-live="polite"
-            >
-              +{bonusShow.toLocaleString()}
-            </p>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+        <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center sm:mx-0 sm:max-w-xl md:p-5">
+          <h2 className="text-xl font-bold md:text-2xl">
+            <span className="title-grad">Round complete</span>
+          </h2>
+          {timeBonusPoints > 0 ? (
+            <div className="mt-3 space-y-1">
+              <p className="text-xs uppercase tracking-widest text-ink-400">
+                Time bonus
+                <span className="normal-case text-ink-500"> · 50 pts/sec left</span>
+              </p>
+              <p
+                className="font-mono text-xl font-bold text-emerald-300 tabular-nums md:text-2xl"
+                aria-live="polite"
+              >
+                +{bonusShow.toLocaleString()}
+              </p>
+            </div>
+          ) : null}
+          <div
+            className={`grid grid-cols-3 gap-2 text-sm md:gap-4 ${timeBonusPoints > 0 ? "mt-4" : "mt-3"} md:mt-4`}
+          >
+            <Big label="Score" value={displayScore.toLocaleString()} />
+            <Big label="Best Streak" value={bestStreak.toString()} />
+            <Big label="Accuracy" value={`${accuracy}%`} />
           </div>
-        ) : null}
-        <div
-          className={`grid grid-cols-3 gap-2 text-sm md:gap-4 ${timeBonusPoints > 0 ? "mt-4" : "mt-3"} md:mt-4`}
-        >
-          <Big label="Score" value={displayScore.toLocaleString()} />
-          <Big label="Best Streak" value={bestStreak.toString()} />
-          <Big label="Accuracy" value={`${accuracy}%`} />
-        </div>
-        <div className="mt-2 text-xs text-ink-300">{total} elements placed</div>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-          {showPlayAgain ? (
+          <div className="mt-2 text-xs text-ink-300">{total} elements placed</div>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            {showDailyReplay ? (
+              <button
+                type="button"
+                onClick={onDailyReplay}
+                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 hover:brightness-110"
+              >
+                Replay
+              </button>
+            ) : null}
+            {showPlayAgain ? (
+              <button
+                type="button"
+                onClick={onRestart}
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
+              >
+                Play again
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={onRestart}
-              className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
+              onClick={onChangeMode}
+              className="rounded-full border border-white/15 bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink-300 hover:bg-white/[0.1] hover:text-white"
             >
-              Play again
+              {showPlayAgain ? "Change mode" : "Menu"}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onChangeMode}
-            className="rounded-full border border-white/15 bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink-300 hover:bg-white/[0.1] hover:text-white"
-          >
-            {showPlayAgain ? "Change mode" : "Menu"}
-          </button>
+            {showShare ? (
+              <button
+                type="button"
+                onClick={() => void handleShare()}
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/25 hover:brightness-110"
+              >
+                Share
+              </button>
+            ) : null}
+          </div>
         </div>
+        {shareCopiedPhase !== "hidden" ? (
+          <p
+            className={`shrink-0 self-center text-center text-sm font-medium text-emerald-300/95 transition-opacity duration-700 sm:max-w-[10rem] sm:text-left ${
+              shareCopiedPhase === "fade" ? "opacity-0" : "opacity-100"
+            }`}
+            aria-live="polite"
+          >
+            Scorecard copied to clipboard
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1519,7 +1677,7 @@ function Big({ label, value }: { label: string; value: string }) {
 function Footer() {
   return (
     <footer className="mt-1.5 flex items-center justify-end px-1 text-[10px] text-ink-300 md:mt-2 md:text-[11px]">
-      <span className="font-mono opacity-60">v0.1 · MVP</span>
+      <span className="font-mono opacity-60">© Bob Kelly 2026 • v0.2.1</span>
     </footer>
   );
 }

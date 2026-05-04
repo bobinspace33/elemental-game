@@ -33,11 +33,7 @@ export interface ElementDef {
   category: ElementCategory;
 }
 
-/**
- * Palette families aligned with conventional periodic-table categories (similar to ptable.com).
- * Main-block fills use category base hue plus column/row tilt for a coarse rainbow read.
- * Lanthanide and actinide rows stay a single hue per series (whole row reads the same).
- */
+/** Card-fill families: one keyed hue (+ gradient) per category for a deliberate color key. */
 export type CardDisplayCategory =
   | "reactive-nonmetal"
   | "alkali-metal"
@@ -51,28 +47,28 @@ export type CardDisplayCategory =
   | "unknown";
 
 const CATEGORY_HUE_BASE: Record<CardDisplayCategory, number> = {
-  "alkali-metal": 5,
-  "alkaline-earth": 32,
-  "transition-metal": 234,
-  "post-transition": 204,
-  metalloid: 172,
-  "reactive-nonmetal": 204,
-  "noble-gas": 132,
-  lanthanide: 314,
-  actinide: 52,
-  unknown: 222,
+  "alkali-metal": 356,
+  "alkaline-earth": 26,
+  "transition-metal": 52,
+  "post-transition": 138,
+  metalloid: 192,
+  "reactive-nonmetal": 232,
+  "noble-gas": 278,
+  lanthanide: 332,
+  actinide: 41,
+  unknown: 220,
 };
 
 const CATEGORY_SAT: Record<CardDisplayCategory, number> = {
-  "alkali-metal": 90,
+  "alkali-metal": 84,
   "alkaline-earth": 86,
-  "transition-metal": 82,
-  "post-transition": 74,
-  metalloid: 72,
+  "transition-metal": 78,
+  "post-transition": 70,
+  metalloid: 58,
   "reactive-nonmetal": 72,
-  "noble-gas": 90,
-  lanthanide: 80,
-  actinide: 78,
+  "noble-gas": 71,
+  lanthanide: 40,
+  actinide: 72,
   unknown: 16,
 };
 
@@ -108,47 +104,36 @@ export function elementCardDisplayCategory(
   }
 }
 
-/** Grid (row/col) used only for hue drift. H is a reactive nonmetal in col 1; use p-block tilt so it matches C/N/O/F. */
-function hueDriftGridForElement(
-  el: ElementDef,
-  disp: Exclude<CardDisplayCategory, "unknown">,
-): { row: number; col: number } {
-  if (el.z === 1 && disp === "reactive-nonmetal") {
-    return { row: 2, col: 15 };
-  }
-  return { row: el.row, col: el.col };
+function cardHueMid(disp: Exclude<CardDisplayCategory, "unknown">): number {
+  return (CATEGORY_HUE_BASE[disp] + 3600) % 360;
 }
 
-function cardHueMid(
-  el: ElementDef,
+function categoryGradientBand(
   disp: Exclude<CardDisplayCategory, "unknown">,
-): number {
-  const base = CATEGORY_HUE_BASE[disp];
-  if (disp === "lanthanide" || disp === "actinide") {
-    return (base + 3600) % 360;
+): { topL: number; botL: number; botHueShift?: number } {
+  switch (disp) {
+    case "alkali-metal":
+      return { topL: 38, botL: 25, botHueShift: 10 };
+    case "alkaline-earth":
+      return { topL: 58, botL: 46, botHueShift: 12 };
+    case "transition-metal":
+      return { topL: 55, botL: 42, botHueShift: 22 };
+    case "post-transition":
+      return { topL: 46, botL: 34, botHueShift: 14 };
+    case "metalloid":
+      return { topL: 64, botL: 53, botHueShift: 10 };
+    case "reactive-nonmetal":
+      return { topL: 32, botL: 21, botHueShift: 12 };
+    case "noble-gas":
+      return { topL: 50, botL: 39, botHueShift: 10 };
+    case "lanthanide":
+      return { topL: 50, botL: 41, botHueShift: 6 };
+    case "actinide":
+      return { topL: 44, botL: 30, botHueShift: -10 };
   }
-
-  const { row, col } = hueDriftGridForElement(el, disp);
-
-  const colRamp = (col - 1) * (78 / 17);
-  const rowRamp = (row - 1) * 1.1;
-
-  if (disp === "transition-metal") {
-    return (base + (row - 1) * 0.95 + 3600) % 360;
-  }
-  if (disp === "noble-gas") {
-    return (base + (row - 1) * 1.1 + 3600) % 360;
-  }
-  if (disp === "reactive-nonmetal") {
-    const dampCol = colRamp * 0.36;
-    const dampRow = rowRamp * 0.88;
-    return (base + dampCol + dampRow + 3600) % 360;
-  }
-
-  return (base + colRamp + rowRamp + 3600) % 360;
 }
 
-/** HSL gradient stops for a placed / colored element card (category + coarse left→right hue drift). */
+/** HSL gradient stops for placed / colored element cards (solid category key). */
 export function elementCardGradientStops(el: ElementDef): {
   top: string;
   bottom: string;
@@ -161,26 +146,15 @@ export function elementCardGradientStops(el: ElementDef): {
     };
   }
   const sat = CATEGORY_SAT[disp];
-  const hMid = cardHueMid(el, disp);
+  const hMid = cardHueMid(disp);
+  const { topL, botL, botHueShift } = categoryGradientBand(disp);
+  const shift = botHueShift ?? 14;
   const hTop = hMid;
-  const hBot = (hMid - 13 + 360) % 360;
-
-  let topL = 47;
-  let botL = 33;
-  if (disp === "transition-metal") {
-    topL = 39;
-    botL = 25;
-  } else if (disp === "reactive-nonmetal") {
-    topL = 55;
-    botL = 42;
-  } else if (disp === "noble-gas") {
-    topL = 53;
-    botL = 40;
-  }
+  const hBot = (hMid + shift + 360) % 360;
 
   return {
     top: `hsl(${Math.round(hTop)} ${sat}% ${topL}%)`,
-    bottom: `hsl(${Math.round(hBot)} ${Math.max(58, sat - 6)}% ${botL}%)`,
+    bottom: `hsl(${Math.round(hBot)} ${Math.max(50, sat - 8)}% ${botL}%)`,
   };
 }
 
@@ -199,7 +173,7 @@ export function emptySlotTargetBorderColor(el: ElementDef): string {
   if (disp === "unknown") {
     return "rgba(148, 163, 184, 0.72)";
   }
-  const hMid = cardHueMid(el, disp);
+  const hMid = cardHueMid(disp);
   return `hsla(${Math.round(hMid)}, 74%, 58%, 0.85)`;
 }
 
@@ -207,27 +181,27 @@ export function emptySlotTargetBorderColor(el: ElementDef): string {
 // Slightly boosted whites on subtle categories so frames read at larger cells.
 export const CATEGORY_INDICATOR: Record<ElementCategory, string> = {
   "noble-gas":
-    "outline outline-2 [outline-offset:-2px] outline-white/90 shadow-[0_0_14px_rgba(255,255,255,0.26)]",
+    "outline outline-2 [outline-offset:-2px] outline-violet-400/90 shadow-[0_0_14px_rgba(167,139,250,0.28)]",
   halogen:
-    "outline outline-2 [outline-offset:-2px] outline-yellow-200/95",
+    "outline outline-2 [outline-offset:-2px] outline-blue-500/92",
   metalloid:
-    "outline outline-2 outline-dashed [outline-offset:-2px] outline-emerald-200/90",
+    "outline outline-2 outline-dashed [outline-offset:-2px] outline-sky-200/92",
   lanthanide:
-    "outline outline-2 outline-dashed [outline-offset:-2px] outline-pink-200/90",
+    "outline outline-2 outline-dashed [outline-offset:-2px] outline-pink-200/88",
   actinide:
-    "outline outline-2 outline-dashed [outline-offset:-2px] outline-amber-200/90",
+    "outline outline-2 outline-dashed [outline-offset:-2px] outline-amber-600/88",
   unknown:
     "outline outline-1 outline-dashed [outline-offset:-1px] outline-slate-200/70",
   "alkali-metal":
-    "outline outline-1 [outline-offset:-1px] outline-white/50",
+    "outline outline-1 [outline-offset:-1px] outline-red-900/82",
   "alkaline-earth":
-    "outline outline-1 [outline-offset:-1px] outline-white/50",
+    "outline outline-1 [outline-offset:-1px] outline-orange-300/92",
   "transition-metal":
-    "outline outline-1 [outline-offset:-1px] outline-white/45",
+    "outline outline-1 [outline-offset:-1px] outline-yellow-300/82",
   "post-transition":
-    "outline outline-1 [outline-offset:-1px] outline-white/45",
+    "outline outline-1 [outline-offset:-1px] outline-green-400/82",
   nonmetal:
-    "outline outline-1 [outline-offset:-1px] outline-white/50",
+    "outline outline-1 [outline-offset:-1px] outline-blue-500/82",
 };
 
 export const CATEGORY_LABEL: Record<ElementCategory, string> = {

@@ -27,8 +27,8 @@ const RIPPLE_CELL_MS = 98;
 /** Short per-slot pulse — wave pacing comes from ring delays */
 const RIPPLE_DURATION_MS = 420;
 const RIPPLE_EASE = "cubic-bezier(0.36, 0.94, 0.22, 1)";
-/** Normalizes Chebyshev ring so distant cells barely swell */
-const RIPPLE_DISTANCE_NORM = 18;
+/** Chebyshev max distance — only slots within ±this many rows/columns of epicenter ripple */
+const RIPPLE_MAX_CHEBYSHEV = 5;
 
 function chebyshevRing(
   row: number,
@@ -46,7 +46,7 @@ function rippleSmoothT(ring: number, maxRing: number): number {
 
 function ripplePeakScale(ring: number): number {
   const PEAK_EXTRA = 0.13;
-  const t = rippleSmoothT(ring, RIPPLE_DISTANCE_NORM);
+  const t = rippleSmoothT(ring, RIPPLE_MAX_CHEBYSHEV);
   return 1 + PEAK_EXTRA * (1 - t);
 }
 
@@ -64,6 +64,7 @@ function rippleCellParams(
 ): RippleCellStyle {
   if (rippleWave == null) return { rippleAnim: "" };
   const ring = chebyshevRing(row, col, rippleWave.originRow, rippleWave.originCol);
+  if (ring > RIPPLE_MAX_CHEBYSHEV) return { rippleAnim: "" };
   const delayMs = rippleLeadMs + ring * RIPPLE_CELL_MS;
   const rippleAnim = `rippleSlotWave ${RIPPLE_DURATION_MS}ms ${RIPPLE_EASE} ${delayMs}ms both`;
   const peak = ripplePeakScale(ring);

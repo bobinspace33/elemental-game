@@ -1,6 +1,9 @@
 "use client";
 
-import { ROW_GRADIENT, type ElementDef } from "@/lib/elements";
+import {
+  elementCardFillBackgroundStyle,
+  type ElementDef,
+} from "@/lib/elements";
 
 interface ElementCardProps {
   element: ElementDef;
@@ -101,8 +104,7 @@ export function ElementCard({
     );
   }
 
-  // Placed/colored card: bold rainbow gradient by row.
-  const gradient = ROW_GRADIENT[element.row] ?? "from-slate-500 to-slate-700";
+  const fillStyle = elementCardFillBackgroundStyle(element);
 
   const topLeftHand =
     placementHint && !compact ? (
@@ -119,11 +121,11 @@ export function ElementCard({
       className={[
         baseShell,
         compact ? "" : "border-white/15",
-        "bg-gradient-to-b text-white",
-        gradient,
+        "text-white",
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_22px_rgba(0,0,0,0.35)]",
         className,
       ].join(" ")}
+      style={fillStyle}
     >
       {!compact ? topLeftHand : null}
       <span

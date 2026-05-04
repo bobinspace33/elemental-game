@@ -976,6 +976,7 @@ export function Game() {
       if (!prev.started || prev.finished) return prev;
       if (prev.afterTimeUp === "modal") return prev;
       if (!prev.hand.includes(z)) return prev;
+      if (prev.placedZs.has(droppedSlotZ)) return prev;
 
       const scoreFrozen = prev.afterTimeUp === "continued";
       const isBonus = prev.bonusZs.has(z);
@@ -1026,6 +1027,7 @@ export function Game() {
         dropId,
         scoreFloat: { target: points, dropId },
         celebrationPhrase: result.exact ? pickCelebrationPhrase() : undefined,
+        exactStreakAfter: result.exact ? newStreak : undefined,
         streakLength:
           !scoreFrozen && result.exact && newStreak >= 2 ? newStreak : undefined,
       });

@@ -62,6 +62,38 @@ body {
   box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.85), 0 0 24px rgba(34, 211, 238, 0.35) inset;
 }
 
+/* Exact-hit ripple: fast per-slot pulse via JS duration; Chebyshev ring delays spread propagation */
+@keyframes rippleSlotWave {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: none;
+  }
+  52% {
+    transform: scale(var(--ripple-p1, 1.09));
+    filter: brightness(calc(1 + var(--ripple-lit, 0.05)));
+    box-shadow:
+      0 20px 42px rgba(0, 0, 0, 0.36),
+      0 10px 22px rgba(0, 0, 0, 0.2),
+      0 0 0 1px rgba(255, 255, 255, 0.045);
+  }
+  78% {
+    transform: scale(var(--ripple-p2, 1.03));
+    filter: brightness(calc(1 + var(--ripple-lit-mid, 0.02)));
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  }
+  94% {
+    transform: scale(var(--ripple-p3, 1.01));
+    filter: brightness(calc(1 + var(--ripple-lit-tail, 0.006)));
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow: none;
+  }
+}
+
 /* Subtle scrollbar */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background: #1f2536; border-radius: 8px; }

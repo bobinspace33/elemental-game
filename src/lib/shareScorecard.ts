@@ -1,17 +1,4 @@
-import { ELEMENTS_BY_Z } from "@/lib/elements";
-
-/** Row fill: gradient corner colors matching in-game row stripes. */
-const ROW_GRADIENT: Record<number, [string, string]> = {
-  1: ["#ef4444", "#e11d48"],
-  2: ["#f97316", "#ef4444"],
-  3: ["#fbbf24", "#f97316"],
-  4: ["#84cc16", "#22c55e"],
-  5: ["#10b981", "#14b8a6"],
-  6: ["#06b6d4", "#2563eb"],
-  7: ["#6366f1", "#7c3aed"],
-  9: ["#d946ef", "#ec4899"],
-  10: ["#f43f5e", "#9333ea"],
-};
+import { ELEMENTS_BY_Z, elementCardGradientStops } from "@/lib/elements";
 
 export function formatDailyDateSubtitle(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map((x) => parseInt(x, 10));
@@ -229,7 +216,7 @@ export function renderDailyShareScorecardPng(
       const x = tilesOriginX + col * (tileW + tileGap);
       const y = tilesOriginY + row * (tileH + tileGap);
 
-      const [c0, c1] = ROW_GRADIENT[el.row] ?? ["#64748b", "#334155"];
+      const { top: c0, bottom: c1 } = elementCardGradientStops(el);
       const g = ctx.createLinearGradient(x, y, x + tileW, y + tileH);
       g.addColorStop(0, c0);
       g.addColorStop(1, c1);

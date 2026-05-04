@@ -6,12 +6,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   CATEGORY_INDICATOR,
   ELEMENTS,
   ELEMENT_CELLS,
+  emptySlotTargetBorderColor,
   PLACEHOLDER_CELLS,
   type ElementDef,
 } from "@/lib/elements";
@@ -19,6 +21,73 @@ import { ElementCard } from "./ElementCard";
 
 const ROWS = 10;
 const COLS = 18;
+
+/** Delay between Chebyshev rings — slower outward propagation */
+const RIPPLE_CELL_MS = 98;
+/** Short per-slot pulse — wave pacing comes from ring delays */
+const RIPPLE_DURATION_MS = 420;
+const RIPPLE_EASE = "cubic-bezier(0.36, 0.94, 0.22, 1)";
+/** Normalizes Chebyshev ring so distant cells barely swell */
+const RIPPLE_DISTANCE_NORM = 18;
+
+function chebyshevRing(
+  row: number,
+  col: number,
+  originRow: number,
+  originCol: number,
+): number {
+  return Math.max(Math.abs(row - originRow), Math.abs(col - originCol));
+}
+
+function rippleSmoothT(ring: number, maxRing: number): number {
+  const x = Math.min(1, Math.max(0, ring / Math.max(maxRing, 1)));
+  return x * x * (3 - 2 * x);
+}
+
+function ripplePeakScale(ring: number): number {
+  const PEAK_EXTRA = 0.13;
+  const t = rippleSmoothT(ring, RIPPLE_DISTANCE_NORM);
+  return 1 + PEAK_EXTRA * (1 - t);
+}
+
+type RippleCellStyle = {
+  rippleAnim: string;
+  cssVars?: CSSProperties;
+};
+
+function rippleCellParams(
+  row: number,
+  col: number,
+  rippleWave: { dropId: number; originRow: number; originCol: number } | null,
+  /** Wait until hit-stop shake has cleared (ripple starts same epicenter). */
+  rippleLeadMs: number,
+): RippleCellStyle {
+  if (rippleWave == null) return { rippleAnim: "" };
+  const ring = chebyshevRing(row, col, rippleWave.originRow, rippleWave.originCol);
+  const delayMs = rippleLeadMs + ring * RIPPLE_CELL_MS;
+  const rippleAnim = `rippleSlotWave ${RIPPLE_DURATION_MS}ms ${RIPPLE_EASE} ${delayMs}ms both`;
+  const peak = ripplePeakScale(ring);
+  const extra = peak - 1;
+  const lit = Math.min(0.07, extra * 0.52);
+  return {
+    rippleAnim,
+    cssVars: {
+      ["--ripple-p1" as string]: peak.toFixed(4),
+      ["--ripple-p2" as string]: (1 + extra * 0.44).toFixed(4),
+      ["--ripple-p3" as string]: (1 + extra * 0.17).toFixed(4),
+      ["--ripple-lit" as string]: lit.toFixed(4),
+      ["--ripple-lit-mid" as string]: (lit * 0.4).toFixed(4),
+      ["--ripple-lit-tail" as string]: (lit * 0.14).toFixed(4),
+    } as CSSProperties,
+  };
+}
+
+function hitStopAnimForStreak(streak: number): { cls: string; clearMs: number } {
+  if (streak >= 7) return { cls: "animate-hitStopT4", clearMs: 210 };
+  if (streak >= 4) return { cls: "animate-hitStopT3", clearMs: 178 };
+  if (streak >= 2) return { cls: "animate-hitStopT2", clearMs: 142 };
+  return { cls: "animate-hitStop", clearMs: 122 };
+}
 
 type FlashKind = "good" | "mid" | "bad" | undefined;
 
@@ -33,6 +102,8 @@ export interface PlacementInfo {
   scoreFloat?: { target: number; dropId: number };
   /** Exact placement: random phrase flashed center-table ~1s. */
   celebrationPhrase?: string;
+  /** Streak count after this exact drop — stronger hit-stop at higher tiers. */
+  exactStreakAfter?: number;
   /** Consecutive exact count (≥2): rainbow label beside the score pop. */
   streakLength?: number;
 }
@@ -46,7 +117,7 @@ interface PeriodicTableProps {
   onSlotScreenSize?: (px: number) => void;
   /** From `ViewportFitScale` — remeasure when table scale changes. */
   viewportScale?: number;
-  /** Increments on each exact drop — brief hit-stop on the table shell. */
+  /** Increments on each exact drop — brief hit-stop on the card grid (epicenter = exact slot). */
   hitStopVersion?: number;
 }
 
@@ -58,6 +129,9 @@ interface SlotProps {
   flashKind: FlashKind;
   attempted: boolean;
   registerRef: (key: string, el: HTMLDivElement | null) => void;
+  /** Propagating lift animation from exact-hit cell */
+  rippleWave: { dropId: number; originRow: number; originCol: number } | null;
+  rippleLeadMs: number;
 }
 
 function Slot({
@@ -68,17 +142,41 @@ function Slot({
   flashKind,
   attempted,
   registerRef,
+  rippleWave,
+  rippleLeadMs,
 }: SlotProps) {
   const id = `slot-${row}-${col}`;
-  const { isOver, setNodeRef } = useDroppable({ id, data: { row, col } });
+  const { isOver, setNodeRef } = useDroppable({
+    id,
+    disabled: placed,
+    data: { row, col },
+  });
   const localRef = useRef<HTMLDivElement | null>(null);
 
-  // Combined ref: dnd-kit's setNodeRef + our own ref for line measurement.
   const combinedRef = (el: HTMLDivElement | null) => {
     setNodeRef(el);
     localRef.current = el;
     registerRef(`${row}:${col}`, el);
   };
+
+  const { rippleAnim, cssVars: rippleCssVars } = rippleCellParams(
+    row,
+    col,
+    rippleWave,
+    rippleLeadMs,
+  );
+
+  useLayoutEffect(() => {
+    const node = localRef.current;
+    if (!node) return;
+    if (!rippleAnim) {
+      node.style.removeProperty("animation");
+      return;
+    }
+    node.style.animation = "none";
+    void node.offsetWidth;
+    node.style.animation = rippleAnim;
+  }, [rippleWave?.dropId, rippleAnim, rippleLeadMs]);
 
   const flashClass =
     flashKind === "good"
@@ -90,15 +188,16 @@ function Slot({
           : "";
 
   const placedIndicator = placed ? CATEGORY_INDICATOR[element.category] : "";
+  const emptyBorder = !placed ? emptySlotTargetBorderColor(element) : undefined;
 
   return (
     <div
       ref={combinedRef}
       className={[
-        "relative flex items-center justify-center rounded-lg overflow-hidden",
+        "relative z-[1] flex transform-gpu items-center justify-center rounded-lg overflow-visible",
         // When placed we drop the border entirely so the card color reaches
         // the slot's outer edge; the category outline is the new frame.
-        placed ? "" : "border border-white/[0.14]",
+        placed ? "" : "border border-solid",
         "bg-white/[0.025]",
         placedIndicator,
         "transition-colors",
@@ -109,6 +208,8 @@ function Slot({
         gridColumnStart: col,
         gridRowStart: row,
         aspectRatio: "1 / 1",
+        ...(emptyBorder != null ? { borderColor: emptyBorder } : {}),
+        ...rippleCssVars,
       }}
       title={`${element.name} (${element.symbol})`}
       data-row={row}
@@ -123,23 +224,25 @@ function Slot({
             {element.z}
           </span>
           {flashKind === "good" ? (
-            <div className="h-full w-full origin-center animate-correctSlotPop">
+            <div className="h-full w-full origin-center overflow-hidden rounded-lg animate-correctSlotPop">
               <ElementCard
                 element={element}
                 colored
                 size="sm"
                 compact
-                className="!h-full !w-full"
+                className="!h-full !w-full rounded-lg"
               />
             </div>
           ) : (
-            <ElementCard
-              element={element}
-              colored
-              size="sm"
-              compact
-              className="!h-full !w-full"
-            />
+            <div className="h-full w-full overflow-hidden rounded-lg">
+              <ElementCard
+                element={element}
+                colored
+                size="sm"
+                compact
+                className="!h-full !w-full rounded-lg"
+              />
+            </div>
           )}
         </>
       ) : (
@@ -159,15 +262,45 @@ function Placeholder({
   row,
   col,
   label,
+  rippleWave,
+  rippleLeadMs,
 }: {
   row: number;
   col: number;
   label: string;
+  rippleWave: { dropId: number; originRow: number; originCol: number } | null;
+  rippleLeadMs: number;
 }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const { rippleAnim, cssVars: rippleCssVars } = rippleCellParams(
+    row,
+    col,
+    rippleWave,
+    rippleLeadMs,
+  );
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (!rippleAnim) {
+      node.style.removeProperty("animation");
+      return;
+    }
+    node.style.animation = "none";
+    void node.offsetWidth;
+    node.style.animation = rippleAnim;
+  }, [rippleWave?.dropId, rippleAnim, rippleLeadMs]);
+
   return (
     <div
-      className="flex items-center justify-center rounded-lg border border-dashed border-white/22 bg-white/[0.03]"
-      style={{ gridColumnStart: col, gridRowStart: row, aspectRatio: "1 / 1" }}
+      ref={ref}
+      className="relative z-[1] flex transform-gpu items-center justify-center overflow-visible rounded-lg border border-dashed border-white/22 bg-white/[0.03]"
+      style={{
+        gridColumnStart: col,
+        gridRowStart: row,
+        aspectRatio: "1 / 1",
+        ...rippleCssVars,
+      }}
     >
       <span className="font-mono text-[11px] font-medium text-white/55 md:text-xs">{label}</span>
     </div>
@@ -373,10 +506,11 @@ function CelebrationPhraseSvg({
   text: string;
   gradId: string;
 }) {
+  const cy = 240;
   return (
     <svg
       className="w-full max-w-[min(96vw,56rem)] overflow-visible"
-      viewBox="0 0 1000 170"
+      viewBox="0 0 1000 480"
       role="img"
       aria-hidden
     >
@@ -391,21 +525,21 @@ function CelebrationPhraseSvg({
           <stop offset="100%" stopColor="rgb(248, 113, 113)" />
         </linearGradient>
       </defs>
-      <g transform="translate(500, 86) scale(2) translate(-500, -86)">
+      <g transform={`translate(500, ${cy}) translate(-500, ${-cy})`}>
         <text
           x="500"
-          y="86"
+          y={cy}
           textAnchor="middle"
           dominantBaseline="middle"
           fill={`url(#${gradId})`}
           stroke={`url(#${gradId})`}
-          strokeWidth={6}
+          strokeWidth={22}
           strokeLinejoin="round"
           strokeLinecap="round"
           paintOrder="stroke fill"
           style={{
-            fontSize: 80,
-            fontWeight: 900,
+            fontSize: 320,
+            fontWeight: 600,
             letterSpacing: "-0.02em",
             fontFamily:
               'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
@@ -430,7 +564,7 @@ export function PeriodicTable({
   const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [line, setLine] = useState<LineState | null>(null);
   const [scorePop, setScorePop] = useState<ScorePopState | null>(null);
-  const [hitStopPulse, setHitStopPulse] = useState(false);
+  const [hitStopAnim, setHitStopAnim] = useState("");
   const [celebration, setCelebration] = useState<{
     text: string;
     key: number;
@@ -440,6 +574,14 @@ export function PeriodicTable({
     setScorePop((cur) => (cur && cur.id === id ? null : cur));
   }, []);
 
+  const streakForHitStopRef = useRef(1);
+
+  useLayoutEffect(() => {
+    if (placement?.exactStreakAfter != null) {
+      streakForHitStopRef.current = placement.exactStreakAfter;
+    }
+  }, [placement?.exactStreakAfter, placement?.dropId]);
+
   useEffect(() => {
     setLine(null);
     setScorePop(null);
@@ -448,9 +590,10 @@ export function PeriodicTable({
 
   useEffect(() => {
     if (!hitStopVersion) return;
-    setHitStopPulse(true);
-    const t = window.setTimeout(() => setHitStopPulse(false), 120);
-    return () => clearTimeout(t);
+    const { cls, clearMs } = hitStopAnimForStreak(streakForHitStopRef.current);
+    setHitStopAnim(cls);
+    const t = window.setTimeout(() => setHitStopAnim(""), clearMs);
+    return () => window.clearTimeout(t);
   }, [hitStopVersion]);
 
   useEffect(() => {
@@ -553,6 +696,29 @@ export function PeriodicTable({
     };
   }, [onSlotScreenSize, viewportScale]);
 
+  const faRipple = placement?.flashAt;
+  const rippleWave =
+    faRipple?.kind === "good" && placement?.dropId != null
+      ? {
+          dropId: placement.dropId,
+          originRow: faRipple.row,
+          originCol: faRipple.col,
+        }
+      : null;
+
+  /** Match hit-stop tier so ripple starts after shake clears (~same epicenter). */
+  const rippleLeadMs =
+    rippleWave != null
+      ? hitStopAnimForStreak(placement?.exactStreakAfter ?? 1).clearMs
+      : 0;
+
+  const gridShakeOriginPct =
+    hitStopAnim &&
+    placement?.flashAt?.kind === "good" &&
+    rippleWave != null
+      ? `${((placement.flashAt.col - 0.5) / COLS) * 100}% ${((placement.flashAt.row - 0.5) / ROWS) * 100}%`
+      : undefined;
+
   const cells: React.ReactNode[] = [];
 
   for (let row = 1; row <= ROWS; row++) {
@@ -568,6 +734,8 @@ export function PeriodicTable({
             row={row}
             col={col}
             label={placeholder.label}
+            rippleWave={rippleWave}
+            rippleLeadMs={rippleLeadMs}
           />,
         );
         continue;
@@ -598,18 +766,15 @@ export function PeriodicTable({
           flashKind={flashKind}
           attempted={attempted}
           registerRef={registerRef}
+          rippleWave={rippleWave}
+          rippleLeadMs={rippleLeadMs}
         />,
       );
     }
   }
 
   return (
-    <div
-      className={[
-        "grain relative min-w-[984px] overflow-visible rounded-2xl border border-white/15 bg-ink-900/60 p-3.5 md:p-5",
-        hitStopPulse ? "animate-hitStop" : "",
-      ].join(" ")}
-    >
+    <div className="grain relative min-w-[984px] overflow-visible rounded-2xl border border-white/15 bg-ink-900/60 p-3.5 md:p-5">
       {celebration ? (
         <div
           className="pointer-events-none absolute inset-0 z-[34] flex items-center justify-center px-6 md:px-12"
@@ -629,10 +794,16 @@ export function PeriodicTable({
       ) : null}
       <div
         ref={containerRef}
-        className="relative grid w-full min-w-[984px] gap-1.5 overflow-visible pr-[6.5rem] md:gap-2 md:pr-40"
+        className={[
+          "relative isolate grid w-full min-w-[984px] gap-1.5 overflow-visible pr-[6.5rem] md:gap-2 md:pr-40",
+          hitStopAnim,
+        ]
+          .filter(Boolean)
+          .join(" ")}
         style={{
           gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
+          ...(gridShakeOriginPct ? { transformOrigin: gridShakeOriginPct } : {}),
         }}
       >
         {cells}

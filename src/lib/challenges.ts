@@ -40,6 +40,8 @@ export type MidGameChallengeKind = "tripleChoice" | "atomicOrder";
 export type TripleChoiceVariant =
   | "nobleGas"
   | "notNobleGas"
+  | "alkaliMetal"
+  | "alkalineEarth"
   | "notMetal"
   | "notSolidRt"
   | "isGasRt";
@@ -96,6 +98,36 @@ export function buildTripleNobleGasIs(): MidGameTripleChoiceChallenge {
     kind: "tripleChoice",
     variant: "nobleGas",
     prompt: "Which element is a noble gas?",
+    choices: shuffle([correct, a, b]),
+    correctZ: correct.z,
+  };
+}
+
+/** One alkali metal (Group 1, excl. H) + two non–alkali distractors, shuffled. */
+export function buildTripleAlkaliMetal(): MidGameTripleChoiceChallenge {
+  const alkalis = ELEMENTS.filter((e) => e.category === "alkali-metal");
+  const pool = ELEMENTS.filter((e) => e.category !== "alkali-metal");
+  const correct = randomFrom(alkalis);
+  const [a, b] = pickTwoDistractors(pool, correct);
+  return {
+    kind: "tripleChoice",
+    variant: "alkaliMetal",
+    prompt: "Which one is an alkali metal?",
+    choices: shuffle([correct, a, b]),
+    correctZ: correct.z,
+  };
+}
+
+/** One alkaline earth metal (Group 2) + two non–group-2 distractors, shuffled. */
+export function buildTripleAlkalineEarth(): MidGameTripleChoiceChallenge {
+  const earths = ELEMENTS.filter((e) => e.category === "alkaline-earth");
+  const pool = ELEMENTS.filter((e) => e.category !== "alkaline-earth");
+  const correct = randomFrom(earths);
+  const [a, b] = pickTwoDistractors(pool, correct);
+  return {
+    kind: "tripleChoice",
+    variant: "alkalineEarth",
+    prompt: "Which one is an alkaline earth metal?",
     choices: shuffle([correct, a, b]),
     correctZ: correct.z,
   };
@@ -205,6 +237,8 @@ export function buildAtomicOrderChallenge(): MidGameAtomicOrderChallenge {
 const RANDOM_STEP_BUILDERS: (() => MidGameChallengeStep)[] = [
   buildAtomicOrderChallenge,
   buildTripleNobleGasIs,
+  buildTripleAlkaliMetal,
+  buildTripleAlkalineEarth,
   buildTripleNotNobleGas,
   buildTripleNotMetal,
   buildTripleNotSolidRt,

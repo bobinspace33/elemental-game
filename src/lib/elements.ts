@@ -33,19 +33,175 @@ export interface ElementDef {
   category: ElementCategory;
 }
 
-// Card FILL color is determined by row position — bold rainbow top to bottom.
-// f-block rows (9, 10) get distinctive magenta/violet so they read separately.
-export const ROW_GRADIENT: Record<number, string> = {
-  1: "from-red-500 to-rose-600",
-  2: "from-orange-500 to-red-500",
-  3: "from-amber-400 to-orange-500",
-  4: "from-lime-400 to-green-500",
-  5: "from-emerald-500 to-teal-500",
-  6: "from-cyan-500 to-blue-600",
-  7: "from-indigo-500 to-violet-600",
-  9: "from-fuchsia-500 to-pink-500", // lanthanides
-  10: "from-rose-500 to-purple-700", // actinides
+/**
+ * Palette families aligned with conventional periodic-table categories (similar to ptable.com).
+ * Main-block fills use category base hue plus column/row tilt for a coarse rainbow read.
+ * Lanthanide and actinide rows stay a single hue per series (whole row reads the same).
+ */
+export type CardDisplayCategory =
+  | "reactive-nonmetal"
+  | "alkali-metal"
+  | "alkaline-earth"
+  | "transition-metal"
+  | "post-transition"
+  | "metalloid"
+  | "noble-gas"
+  | "lanthanide"
+  | "actinide"
+  | "unknown";
+
+const CATEGORY_HUE_BASE: Record<CardDisplayCategory, number> = {
+  "alkali-metal": 5,
+  "alkaline-earth": 32,
+  "transition-metal": 234,
+  "post-transition": 204,
+  metalloid: 172,
+  "reactive-nonmetal": 204,
+  "noble-gas": 132,
+  lanthanide: 314,
+  actinide: 52,
+  unknown: 222,
 };
+
+const CATEGORY_SAT: Record<CardDisplayCategory, number> = {
+  "alkali-metal": 90,
+  "alkaline-earth": 86,
+  "transition-metal": 82,
+  "post-transition": 74,
+  metalloid: 72,
+  "reactive-nonmetal": 72,
+  "noble-gas": 90,
+  lanthanide: 80,
+  actinide: 78,
+  unknown: 16,
+};
+
+export function elementCardDisplayCategory(
+  category: ElementCategory,
+): CardDisplayCategory {
+  switch (category) {
+    case "nonmetal":
+    case "halogen":
+      return "reactive-nonmetal";
+    case "alkali-metal":
+      return "alkali-metal";
+    case "alkaline-earth":
+      return "alkaline-earth";
+    case "transition-metal":
+      return "transition-metal";
+    case "post-transition":
+      return "post-transition";
+    case "metalloid":
+      return "metalloid";
+    case "noble-gas":
+      return "noble-gas";
+    case "lanthanide":
+      return "lanthanide";
+    case "actinide":
+      return "actinide";
+    case "unknown":
+      return "unknown";
+    default: {
+      const x: never = category;
+      return x;
+    }
+  }
+}
+
+/** Grid (row/col) used only for hue drift. H is a reactive nonmetal in col 1; use p-block tilt so it matches C/N/O/F. */
+function hueDriftGridForElement(
+  el: ElementDef,
+  disp: Exclude<CardDisplayCategory, "unknown">,
+): { row: number; col: number } {
+  if (el.z === 1 && disp === "reactive-nonmetal") {
+    return { row: 2, col: 15 };
+  }
+  return { row: el.row, col: el.col };
+}
+
+function cardHueMid(
+  el: ElementDef,
+  disp: Exclude<CardDisplayCategory, "unknown">,
+): number {
+  const base = CATEGORY_HUE_BASE[disp];
+  if (disp === "lanthanide" || disp === "actinide") {
+    return (base + 3600) % 360;
+  }
+
+  const { row, col } = hueDriftGridForElement(el, disp);
+
+  const colRamp = (col - 1) * (78 / 17);
+  const rowRamp = (row - 1) * 1.1;
+
+  if (disp === "transition-metal") {
+    return (base + (row - 1) * 0.95 + 3600) % 360;
+  }
+  if (disp === "noble-gas") {
+    return (base + (row - 1) * 1.1 + 3600) % 360;
+  }
+  if (disp === "reactive-nonmetal") {
+    const dampCol = colRamp * 0.36;
+    const dampRow = rowRamp * 0.88;
+    return (base + dampCol + dampRow + 3600) % 360;
+  }
+
+  return (base + colRamp + rowRamp + 3600) % 360;
+}
+
+/** HSL gradient stops for a placed / colored element card (category + coarse left→right hue drift). */
+export function elementCardGradientStops(el: ElementDef): {
+  top: string;
+  bottom: string;
+} {
+  const disp = elementCardDisplayCategory(el.category);
+  if (disp === "unknown") {
+    return {
+      top: "hsl(220 14% 40%)",
+      bottom: "hsl(226 18% 26%)",
+    };
+  }
+  const sat = CATEGORY_SAT[disp];
+  const hMid = cardHueMid(el, disp);
+  const hTop = hMid;
+  const hBot = (hMid - 13 + 360) % 360;
+
+  let topL = 47;
+  let botL = 33;
+  if (disp === "transition-metal") {
+    topL = 39;
+    botL = 25;
+  } else if (disp === "reactive-nonmetal") {
+    topL = 55;
+    botL = 42;
+  } else if (disp === "noble-gas") {
+    topL = 53;
+    botL = 40;
+  }
+
+  return {
+    top: `hsl(${Math.round(hTop)} ${sat}% ${topL}%)`,
+    bottom: `hsl(${Math.round(hBot)} ${Math.max(58, sat - 6)}% ${botL}%)`,
+  };
+}
+
+export function elementCardFillBackgroundStyle(
+  el: ElementDef,
+): { backgroundImage: string } {
+  const { top, bottom } = elementCardGradientStops(el);
+  return {
+    backgroundImage: `linear-gradient(to bottom, ${top}, ${bottom})`,
+  };
+}
+
+/** Empty slot border tint: matches the palette of the element that belongs in this cell. */
+export function emptySlotTargetBorderColor(el: ElementDef): string {
+  const disp = elementCardDisplayCategory(el.category);
+  if (disp === "unknown") {
+    return "rgba(148, 163, 184, 0.72)";
+  }
+  const hMid = cardHueMid(el, disp);
+  return `hsla(${Math.round(hMid)}, 74%, 58%, 0.85)`;
+}
 
 // Card STROKE indicates the chemistry category. `outline` sits inside the slot.
 // Slightly boosted whites on subtle categories so frames read at larger cells.
@@ -59,7 +215,7 @@ export const CATEGORY_INDICATOR: Record<ElementCategory, string> = {
   lanthanide:
     "outline outline-2 outline-dashed [outline-offset:-2px] outline-pink-200/90",
   actinide:
-    "outline outline-2 outline-dashed [outline-offset:-2px] outline-orange-200/90",
+    "outline outline-2 outline-dashed [outline-offset:-2px] outline-amber-200/90",
   unknown:
     "outline outline-1 outline-dashed [outline-offset:-1px] outline-slate-200/70",
   "alkali-metal":
@@ -135,7 +291,7 @@ export const ELEMENTS: ElementDef[] = [
   e(27, "Co", "Cobalt", 4, 9, "transition-metal"),
   e(28, "Ni", "Nickel", 4, 10, "transition-metal"),
   e(29, "Cu", "Copper", 4, 11, "transition-metal"),
-  e(30, "Zn", "Zinc", 4, 12, "transition-metal"),
+  e(30, "Zn", "Zinc", 4, 12, "post-transition"),
   e(31, "Ga", "Gallium", 4, 13, "post-transition"),
   e(32, "Ge", "Germanium", 4, 14, "metalloid"),
   e(33, "As", "Arsenic", 4, 15, "metalloid"),
@@ -155,7 +311,7 @@ export const ELEMENTS: ElementDef[] = [
   e(45, "Rh", "Rhodium", 5, 9, "transition-metal"),
   e(46, "Pd", "Palladium", 5, 10, "transition-metal"),
   e(47, "Ag", "Silver", 5, 11, "transition-metal"),
-  e(48, "Cd", "Cadmium", 5, 12, "transition-metal"),
+  e(48, "Cd", "Cadmium", 5, 12, "post-transition"),
   e(49, "In", "Indium", 5, 13, "post-transition"),
   e(50, "Sn", "Tin", 5, 14, "post-transition"),
   e(51, "Sb", "Antimony", 5, 15, "metalloid"),
@@ -175,7 +331,7 @@ export const ELEMENTS: ElementDef[] = [
   e(77, "Ir", "Iridium", 6, 9, "transition-metal"),
   e(78, "Pt", "Platinum", 6, 10, "transition-metal"),
   e(79, "Au", "Gold", 6, 11, "transition-metal"),
-  e(80, "Hg", "Mercury", 6, 12, "transition-metal"),
+  e(80, "Hg", "Mercury", 6, 12, "post-transition"),
   e(81, "Tl", "Thallium", 6, 13, "post-transition"),
   e(82, "Pb", "Lead", 6, 14, "post-transition"),
   e(83, "Bi", "Bismuth", 6, 15, "post-transition"),
@@ -194,7 +350,7 @@ export const ELEMENTS: ElementDef[] = [
   e(109, "Mt", "Meitnerium", 7, 9, "unknown"),
   e(110, "Ds", "Darmstadtium", 7, 10, "unknown"),
   e(111, "Rg", "Roentgenium", 7, 11, "unknown"),
-  e(112, "Cn", "Copernicium", 7, 12, "transition-metal"),
+  e(112, "Cn", "Copernicium", 7, 12, "post-transition"),
   e(113, "Nh", "Nihonium", 7, 13, "unknown"),
   e(114, "Fl", "Flerovium", 7, 14, "unknown"),
   e(115, "Mc", "Moscovium", 7, 15, "unknown"),

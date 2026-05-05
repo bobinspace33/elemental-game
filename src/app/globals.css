@@ -197,3 +197,30 @@ body {
   background-size: 200% 100%;
   animation: rainbowShift 6s linear infinite;
 }
+
+/* Mode picker — soft drifting element tiles (blur + opacity). */
+@keyframes menuAmbientTile {
+  0% {
+    opacity: 0;
+    filter: blur(16px);
+  }
+  /* Fade in to fully sharp */
+  18% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  /* Hold fully visible (no blur) before fading out */
+  48% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(16px);
+  }
+}
+
+.menu-ambient-tile {
+  animation: menuAmbientTile var(--menu-ambient-dur, 10s) ease-in-out forwards;
+  will-change: opacity, filter;
+}

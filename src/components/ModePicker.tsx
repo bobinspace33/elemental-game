@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { COPYRIGHT_FOOTER } from "@/lib/appMeta";
 import { countryCodeToFlagEmoji } from "@/lib/countryFlag";
+import { MenuAmbientTiles } from "@/components/MenuAmbientTiles";
 
 /** Modes shown in the menu (includes practice). */
 export type MenuMode = "daily20" | "fullDeck" | "practice";
@@ -59,11 +60,13 @@ export function ModePicker({
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pb-10 pt-6 sm:pt-8"
     >
       <div
-        className="absolute inset-0 min-h-full bg-ink-950/85 backdrop-blur-md"
+        className="absolute inset-0 z-0 min-h-full bg-ink-950/85 backdrop-blur-md"
         onClick={onClose}
       />
 
-      <div className="relative mx-4 mt-1 w-full max-w-xl rounded-3xl border border-white/10 bg-ink-900/90 p-6 shadow-2xl shadow-black/60 sm:p-7">
+      <MenuAmbientTiles />
+
+      <div className="relative z-10 mx-4 mt-1 w-full max-w-xl rounded-3xl border border-white/10 bg-ink-900/90 p-6 shadow-2xl shadow-black/60 sm:p-7">
         <div className="flex flex-col items-center gap-2 text-center">
           <h2 className="text-3xl font-black tracking-tight">
             <span className="title-grad">eleMENTAL</span>

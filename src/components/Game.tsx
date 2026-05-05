@@ -139,7 +139,7 @@ const HINTS_PER_ROUND = 3;
 /** Countdown lengths by mode */
 const DAILY20_TIME_SEC = 3 * 60;
 const FULL_DECK_TIME_SEC = 15 * 60;
-const TIME_BONUS_PER_SECOND = 50;
+const TIME_BONUS_PER_SECOND = 25;
 
 /** Mini-challenge every N placements: Daily 20 gets 3 prompts per milestone, Full Deck gets 1. */
 const CHALLENGE_EVERY_N_PLACEMENTS = 10;
@@ -1596,7 +1596,10 @@ function FinishedPanel({
             <div className="mt-3 space-y-1">
               <p className="text-xs uppercase tracking-widest text-ink-400">
                 Time bonus
-                <span className="normal-case text-ink-500"> · 50 pts/sec left</span>
+                <span className="normal-case text-ink-500">
+                  {" "}
+                  · {TIME_BONUS_PER_SECOND} pts/sec left
+                </span>
               </p>
               <p
                 className="font-mono text-xl font-bold text-emerald-300 tabular-nums md:text-2xl"

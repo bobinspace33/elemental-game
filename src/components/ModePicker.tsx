@@ -66,7 +66,17 @@ export function ModePicker({
 
       <MenuAmbientTiles />
 
-      <div className="relative z-10 mx-4 mt-1 w-full max-w-xl rounded-3xl border border-white/10 bg-ink-900/90 p-6 shadow-2xl shadow-black/60 sm:p-7">
+      <div
+        className={[
+          "relative z-10 mx-4 mt-1 w-full max-w-xl rounded-3xl border border-white/15 p-6 shadow-2xl shadow-black/60 sm:p-7",
+          /* Opaque fallback when backdrop-filter is unavailable */
+          "bg-ink-900/92",
+          /* Frosted glass over ambient tiles — lighter frost so tiles stay visible */
+          "supports-[backdrop-filter]:bg-ink-950/34 supports-[backdrop-filter]:backdrop-blur-lg supports-[backdrop-filter]:backdrop-saturate-110",
+          /* Softer inner lift so content stays readable on blurred tiles */
+          "supports-[backdrop-filter]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+        ].join(" ")}
+      >
         <div className="flex flex-col items-center gap-2 text-center">
           <h2 className="text-3xl font-black tracking-tight">
             <span className="title-grad">eleMENTAL</span>

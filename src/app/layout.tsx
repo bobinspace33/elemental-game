@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "eleMENTAL — Periodic Table Drag & Drop",
+  title: "eleMENTAL — Build Some Chemistry!",
   description:
-    "A sleek, snappy periodic-table learning game. Drag element cards into the right slot, build streaks, and master all 118.",
+    "Periodic Table learning game. Drag element cards into the right slot, build streaks, and master all 118 elements!",
 };
 
 export default function RootLayout({

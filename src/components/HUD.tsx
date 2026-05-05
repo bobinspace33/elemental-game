@@ -7,7 +7,6 @@ interface HUDProps {
   /** Width lock for score animation: use max(display, true total) so the box steps wider only when a new digit/comma is needed. */
   scoreWidthLock: number;
   streak: number;
-  bestStreak: number;
   remaining: number;
   total: number;
   started: boolean;
@@ -23,7 +22,6 @@ export function HUD({
   score,
   scoreWidthLock,
   streak,
-  bestStreak,
   remaining,
   total,
   started,
@@ -33,6 +31,7 @@ export function HUD({
   restartDisabled = false,
 }: HUDProps) {
   const mult = streakMultiplier(streak);
+  const multLabel = mult === 1.5 ? "×1.5" : `×${mult}`;
   return (
     <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-2">
@@ -61,12 +60,12 @@ export function HUD({
           valueWidthLockNumber={scoreWidthLock}
           accent="text-emerald-300"
         />
+        <Stat label="Streak" value={streak.toString()} accent="text-ink-300" />
         <Stat
-          label="Streak"
-          value={`${streak}${mult > 1 ? `  ×${mult}` : ""}`}
+          label="MULT"
+          value={multLabel}
           accent={mult > 1 ? "text-fuchsia-300" : "text-ink-300"}
         />
-        <Stat label="Best" value={bestStreak.toString()} accent="text-amber-300" />
         <Stat
           label="Left"
           value={started ? `${remaining}/${total}` : "—"}

@@ -1088,7 +1088,6 @@ export function Game() {
               score={hudScoreDisplay}
               scoreWidthLock={Math.max(hudScoreDisplay, state.score)}
               streak={state.streak}
-              bestStreak={state.bestStreak}
               remaining={Math.max(0, remaining)}
               total={totalForRound}
               started={state.started}
@@ -1127,7 +1126,6 @@ export function Game() {
                 timeBonusPoints={state.timeBonusPoints}
                 bestStreak={state.bestStreak}
                 accuracy={accuracy}
-                total={state.totalDrops}
                 showPlayAgain={state.mode !== "daily20"}
                 showDailyReplay={state.mode === "daily20"}
                 onDailyReplay={() => setDailyReplayTimerPromptOpen(true)}
@@ -1495,7 +1493,6 @@ function FinishedPanel({
   timeBonusPoints,
   bestStreak,
   accuracy,
-  total,
   showPlayAgain,
   showDailyReplay,
   onDailyReplay,
@@ -1511,7 +1508,6 @@ function FinishedPanel({
   timeBonusPoints: number;
   bestStreak: number;
   accuracy: number;
-  total: number;
   showPlayAgain: boolean;
   showDailyReplay: boolean;
   onDailyReplay: () => void;
@@ -1589,34 +1585,29 @@ function FinishedPanel({
     <div className="max-h-[min(340px,38svh)] w-full overflow-y-auto overscroll-contain px-1 [-webkit-overflow-scrolling:touch]">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
         <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center sm:mx-0 sm:max-w-xl md:p-5">
-          <h2 className="text-xl font-bold md:text-2xl">
-            <span className="title-grad">Round complete</span>
-          </h2>
+          <h2 className="text-xl font-bold text-white md:text-2xl">Round complete</h2>
+          <p
+            className="title-grad mx-auto mt-4 inline-block font-mono text-3xl font-bold tabular-nums md:mt-5 md:text-4xl"
+            aria-live="polite"
+          >
+            {displayScore.toLocaleString()}
+          </p>
           {timeBonusPoints > 0 ? (
-            <div className="mt-3 space-y-1">
-              <p className="text-xs uppercase tracking-widest text-ink-400">
-                Time bonus
-                <span className="normal-case text-ink-500">
-                  {" "}
-                  · {TIME_BONUS_PER_SECOND} pts/sec left
-                </span>
+            <div className="mx-auto mt-4 max-w-xs rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+              <p className="text-[10px] uppercase tracking-widest text-ink-400">
+                TIME BONUS
               </p>
-              <p
-                className="font-mono text-xl font-bold text-emerald-300 tabular-nums md:text-2xl"
-                aria-live="polite"
-              >
+              <p className="mt-1 font-mono text-lg font-bold tabular-nums text-emerald-300 md:text-xl">
                 +{bonusShow.toLocaleString()}
               </p>
             </div>
           ) : null}
           <div
-            className={`grid grid-cols-3 gap-2 text-sm md:gap-4 ${timeBonusPoints > 0 ? "mt-4" : "mt-3"} md:mt-4`}
+            className={`grid grid-cols-2 gap-2 text-sm md:gap-4 ${timeBonusPoints > 0 ? "mt-4" : "mt-5"} md:mt-5`}
           >
-            <Big label="Score" value={displayScore.toLocaleString()} />
             <Big label="Best Streak" value={bestStreak.toString()} />
             <Big label="Accuracy" value={`${accuracy}%`} />
           </div>
-          <div className="mt-2 text-xs text-ink-300">{total} elements placed</div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             {showDailyReplay ? (
               <button

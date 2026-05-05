@@ -120,6 +120,11 @@ interface PeriodicTableProps {
   viewportScale?: number;
   /** Increments on each exact drop — brief hit-stop on the card grid (epicenter = exact slot). */
   hitStopVersion?: number;
+  /**
+   * When true, slots show native hover tooltips with element name/symbol.
+   * Keep false during an active round so empty cells do not spoil answers.
+   */
+  slotAnswerTooltips?: boolean;
 }
 
 interface SlotProps {
@@ -133,6 +138,7 @@ interface SlotProps {
   /** Propagating lift animation from exact-hit cell */
   rippleWave: { dropId: number; originRow: number; originCol: number } | null;
   rippleLeadMs: number;
+  slotAnswerTooltips: boolean;
 }
 
 function Slot({
@@ -145,6 +151,7 @@ function Slot({
   registerRef,
   rippleWave,
   rippleLeadMs,
+  slotAnswerTooltips,
 }: SlotProps) {
   const id = `slot-${row}-${col}`;
   const { isOver, setNodeRef } = useDroppable({
@@ -212,7 +219,11 @@ function Slot({
         ...(emptyBorder != null ? { borderColor: emptyBorder } : {}),
         ...rippleCssVars,
       }}
-      title={`${element.name} (${element.symbol})`}
+      title={
+        slotAnswerTooltips
+          ? `${element.name} (${element.symbol})`
+          : undefined
+      }
       data-row={row}
       data-col={col}
     >
@@ -560,6 +571,7 @@ export function PeriodicTable({
   onSlotScreenSize,
   viewportScale = 1,
   hitStopVersion = 0,
+  slotAnswerTooltips = false,
 }: PeriodicTableProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -769,6 +781,7 @@ export function PeriodicTable({
           registerRef={registerRef}
           rippleWave={rippleWave}
           rippleLeadMs={rippleLeadMs}
+          slotAnswerTooltips={slotAnswerTooltips}
         />,
       );
     }

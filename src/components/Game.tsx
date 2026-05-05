@@ -988,6 +988,7 @@ export function Game() {
         isBonus,
         trueAt.col,
         placedAt.col,
+        trueAt.row,
       );
       const points = scoreFrozen ? 0 : result.finalPoints;
       const newStreak = scoreFrozen ? prev.streak : nextStreak(prev.streak, result.exact);
@@ -1112,6 +1113,7 @@ export function Game() {
               hitStopVersion={tableHitStop}
               onSlotScreenSize={handleSlotScreenSize}
               viewportScale={viewportScale}
+              slotAnswerTooltips={state.finished}
             />
           </ViewportFitScale>
         </div>

@@ -2,11 +2,12 @@
 //
 // Distance: |Z_card − Z_slot| where Z_slot is the atomic number of the element
 // in the cell the player dropped on (not grid distance on the chart).
-// Base points from |ΔZ|: 1000 when distance is 0, then
-// round(1000 * exp(-k * distance)); minimum 1 so every drop scores.
-// Atomic number: add the card's Z flat (e.g. exact O → 1000 + 8) before other mults.
-// Column proximity (only when not an exact cell): correct column +100, off by 1 col +50,
-// off by 2 cols +25 — added before streak / bonus multipliers.
+// Exact placement: base = 1000 + (100 × table row of the card's correct cell) + atomic number,
+// before streak / bonus multipliers (row is 1-indexed like the periodic chart layout).
+// Non-exact: base points from |ΔZ| via round(1000 * exp(-k * distance)); minimum 1.
+// Atomic number: card Z added flat after base, before multipliers.
+// Column proximity (only when not an exact cell): same column +100, 1 column off +50,
+// 2 columns off +25 — added before streak / bonus multipliers.
 // Tiered streak (counts of consecutive EXACT placements):
 //   3 in a row -> 1.5x
 //   5 in a row -> 2x
@@ -14,7 +15,7 @@
 // Streak resets on any non-exact drop.
 
 export interface ScoreResult {
-  /** Rounded distance-based score (exp decay), before +Z. */
+  /** Distance-based score before +Z (exact: 1000 + row tier; non-exact: exp decay). */
   basePoints: number;
   /** Card atomic number added to base before streak / bonus. */
   zFlatBonus: number;
@@ -61,12 +62,15 @@ export function computeScore(
   isBonus: boolean = false,
   trueCol: number,
   droppedCol: number,
+  /** Periodic chart row (1-based) of the card's correct cell — tiers exact base per row. */
+  trueRow: number,
 ): ScoreResult {
   const distance = Math.abs(cardZ - droppedSlotZ);
   const exact = distance === 0;
   const colBonus = columnProximityBonus(exact, trueCol, droppedCol);
-  const rawBase = 1000 * Math.exp(-BASE_SCORE_DECAY_Z * distance);
-  const base = Math.max(1, Math.round(rawBase));
+  const base = exact
+    ? 1000 + 100 * trueRow
+    : Math.max(1, Math.round(1000 * Math.exp(-BASE_SCORE_DECAY_Z * distance)));
   const preMult = base + cardZ + colBonus;
 
   // Streak multiplier applies based on the streak that WILL exist after this drop.

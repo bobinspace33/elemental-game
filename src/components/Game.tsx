@@ -56,6 +56,7 @@ import {
 } from "./PeriodicTable";
 import { ViewportFitScale } from "./ViewportFitScale";
 import { ChallengeModal } from "./ChallengeModal";
+import { ScorecardExactHits } from "./ScorecardExactHits";
 
 type ModePickerMode = Exclude<MenuMode, "practice">;
 type Mode = ModePickerMode | "daily20Practice" | "daily20Practice20";
@@ -1582,38 +1583,43 @@ function FinishedPanel({
   }, [shareScore, shareDateKey, exactOrderZs, bonusZs]);
 
   return (
-    <div className="max-h-[min(340px,38svh)] w-full overflow-y-auto overscroll-contain px-1 [-webkit-overflow-scrolling:touch]">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
-        <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center sm:mx-0 sm:max-w-xl md:p-5">
-          <h2 className="text-xl font-bold text-white md:text-2xl">Round complete</h2>
+    <div className="w-full min-w-0 px-1 pt-0.5">
+      <div className="mx-auto w-full max-w-xl">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-2.5 text-center md:p-3">
+          <div className="flex justify-center">
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-widest text-ink-300">
+              Round complete
+            </span>
+          </div>
           <p
-            className="title-grad mx-auto mt-4 inline-block font-mono text-3xl font-bold tabular-nums md:mt-5 md:text-4xl"
+            className="title-grad mx-auto mt-2 inline-block font-mono text-2xl font-bold tabular-nums md:mt-2.5 md:text-3xl"
             aria-live="polite"
           >
             {displayScore.toLocaleString()}
           </p>
-          {timeBonusPoints > 0 ? (
-            <div className="mx-auto mt-4 max-w-xs rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-              <p className="text-[10px] uppercase tracking-widest text-ink-400">
-                TIME BONUS
-              </p>
-              <p className="mt-1 font-mono text-lg font-bold tabular-nums text-emerald-300 md:text-xl">
-                +{bonusShow.toLocaleString()}
-              </p>
-            </div>
-          ) : null}
-          <div
-            className={`grid grid-cols-2 gap-2 text-sm md:gap-4 ${timeBonusPoints > 0 ? "mt-4" : "mt-5"} md:mt-5`}
-          >
-            <Big label="Best Streak" value={bestStreak.toString()} />
-            <Big label="Accuracy" value={`${accuracy}%`} />
+
+          <div className="mt-1.5 min-h-0 w-full md:mt-2">
+            <ScorecardExactHits zs={exactOrderZs} />
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+
+          <div className="mt-2 grid grid-cols-3 gap-1.5 md:gap-2">
+            <StatChip
+              label="Time bonus"
+              value={timeBonusPoints > 0 ? `+${bonusShow.toLocaleString()}` : "—"}
+              valueClassName={
+                timeBonusPoints > 0 ? "text-emerald-300" : "text-ink-500"
+              }
+            />
+            <StatChip label="Best streak" value={bestStreak.toString()} />
+            <StatChip label="Accuracy" value={`${accuracy}%`} />
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
             {showDailyReplay ? (
               <button
                 type="button"
                 onClick={onDailyReplay}
-                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 hover:brightness-110"
+                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/30 hover:brightness-110"
               >
                 Replay
               </button>
@@ -1622,7 +1628,7 @@ function FinishedPanel({
               <button
                 type="button"
                 onClick={onRestart}
-                className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-fuchsia-500/30 hover:brightness-110"
               >
                 Play again
               </button>
@@ -1630,7 +1636,7 @@ function FinishedPanel({
             <button
               type="button"
               onClick={onChangeMode}
-              className="rounded-full border border-white/15 bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink-300 hover:bg-white/[0.1] hover:text-white"
+              className="rounded-full border border-white/15 bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/[0.1] hover:text-white"
             >
               {showPlayAgain ? "Change mode" : "Menu"}
             </button>
@@ -1638,35 +1644,47 @@ function FinishedPanel({
               <button
                 type="button"
                 onClick={() => void handleShare()}
-                className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/25 hover:brightness-110"
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-cyan-500/25 hover:brightness-110"
               >
                 Share
               </button>
             ) : null}
           </div>
+          {shareCopiedPhase !== "hidden" ? (
+            <p
+              className={`mt-2 text-center text-[11px] font-medium text-emerald-300/95 transition-opacity duration-700 md:text-xs ${
+                shareCopiedPhase === "fade" ? "opacity-0" : "opacity-100"
+              }`}
+              aria-live="polite"
+            >
+              Scorecard copied to clipboard
+            </p>
+          ) : null}
         </div>
-        {shareCopiedPhase !== "hidden" ? (
-          <p
-            className={`shrink-0 self-center text-center text-sm font-medium text-emerald-300/95 transition-opacity duration-700 sm:max-w-[10rem] sm:text-left ${
-              shareCopiedPhase === "fade" ? "opacity-0" : "opacity-100"
-            }`}
-            aria-live="polite"
-          >
-            Scorecard copied to clipboard
-          </p>
-        ) : null}
       </div>
     </div>
   );
 }
 
-function Big({ label, value }: { label: string; value: string }) {
+function StatChip({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
-    <div className="flex flex-col items-center rounded-xl border border-white/10 bg-white/[0.03] px-2 py-2 md:px-4 md:py-3">
-      <span className="text-[9px] uppercase tracking-widest text-ink-300 md:text-[10px]">
+    <div className="flex min-w-0 flex-col items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-1 md:py-1.5">
+      <span className="max-w-full truncate text-[8px] uppercase tracking-widest text-ink-400 md:text-[9px]">
         {label}
       </span>
-      <span className="font-mono text-lg font-bold text-white md:text-2xl">{value}</span>
+      <span
+        className={`max-w-full truncate font-mono text-xs font-bold tabular-nums md:text-sm ${valueClassName ?? "text-white"}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }

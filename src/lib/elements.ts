@@ -104,6 +104,13 @@ export function elementCardDisplayCategory(
   }
 }
 
+/** Hue angle (card palette, °) for rainbow-sorting category groups (e.g. scorecard exact hits). */
+export function elementCategoryRainbowHue(cat: ElementCategory): number {
+  const disp = elementCardDisplayCategory(cat);
+  if (disp === "unknown") return 999;
+  return CATEGORY_HUE_BASE[disp];
+}
+
 function cardHueMid(disp: Exclude<CardDisplayCategory, "unknown">): number {
   return (CATEGORY_HUE_BASE[disp] + 3600) % 360;
 }

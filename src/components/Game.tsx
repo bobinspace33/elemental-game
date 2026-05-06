@@ -717,10 +717,19 @@ export function Game() {
 
   useEffect(() => {
     if (!state.finished || !state.started || initialsPromptedRef.current) return;
+
+    if (isNonScoringPractice(state.mode)) {
+      initialsPromptedRef.current = true;
+      return;
+    }
+    if (state.mode === "daily20" && state.daily20Unrecorded) {
+      initialsPromptedRef.current = true;
+      return;
+    }
+
     initialsPromptedRef.current = true;
-    if (isNonScoringPractice(state.mode)) return;
-    if (state.mode === "daily20" && state.daily20Unrecorded) return;
-    setInitialsOpen(true);
+    /* Modal uses z-[1100] so it stacks above ChallengeModal (z-[1000]). */
+    queueMicrotask(() => setInitialsOpen(true));
   }, [state.finished, state.started, state.mode, state.daily20Unrecorded]);
 
   const handleSubmitLeaderboardScore = useCallback(

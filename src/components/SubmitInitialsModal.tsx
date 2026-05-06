@@ -36,7 +36,7 @@ export function SubmitInitialsModal({
       role="dialog"
       aria-modal="true"
       aria-label="Submit score"
-      className="fixed inset-0 z-[57] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[1100] flex items-center justify-center p-4"
     >
       <div className="absolute inset-0 bg-ink-950/88 backdrop-blur-md" aria-hidden />
       <div className="relative mx-auto w-full max-w-sm rounded-3xl border border-white/10 bg-ink-900/95 p-6 text-center shadow-2xl shadow-black/60 md:p-8">

@@ -5,28 +5,11 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ELEMENTS_BY_Z,
   elementCardFillBackgroundStyle,
-  elementCategoryRainbowHue,
-  type ElementCategory,
+  orderedExactZs,
 } from "@/lib/elements";
 
 const TILE_BASE_PX = 36;
 const TILE_GAP_PX = 4;
-
-function orderedExactZs(zs: readonly number[]): number[] {
-  const uniq = [...new Set(zs)].filter((z) => ELEMENTS_BY_Z[z]);
-  const byCat = new Map<ElementCategory, number[]>();
-  for (const z of uniq) {
-    const el = ELEMENTS_BY_Z[z]!;
-    const arr = byCat.get(el.category) ?? [];
-    arr.push(z);
-    byCat.set(el.category, arr);
-  }
-  for (const arr of byCat.values()) arr.sort((a, b) => a - b);
-  const cats = [...byCat.keys()].sort(
-    (a, b) => elementCategoryRainbowHue(a) - elementCategoryRainbowHue(b),
-  );
-  return cats.flatMap((c) => byCat.get(c)!);
-}
 
 function rowNaturalWidth(count: number): number {
   if (count <= 0) return 0;
@@ -66,7 +49,7 @@ function ExactMiniTile({ z, box }: { z: number; box: number }) {
   );
 }
 
-/** Exact-placement summary: grouped by element category in rainbow hue order; scaled to one row. */
+/** Exact-placement summary: categories in rainbow wheel order (red alkali left); scaled to one row. */
 export function ScorecardExactHits({ zs }: { zs: readonly number[] }) {
   const ordered = useMemo(() => orderedExactZs(zs), [zs]);
   const outerRef = useRef<HTMLDivElement>(null);

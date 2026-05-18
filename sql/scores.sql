@@ -8,12 +8,12 @@ CREATE TABLE IF NOT EXISTS score_entries (
   day_key TEXT NOT NULL,
   initials TEXT NOT NULL,
   score INTEGER NOT NULL CHECK (score >= 0),
-  ip_fingerprint TEXT NOT NULL,
+  ip_fingerprint TEXT NOT NULL, -- Daily 20: salted hash of browser device id; fullDeck: salted client IP hash
   country_code TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- At most one Daily 20 row per UTC day per fingerprinted IP.
+-- At most one scored Daily 20 row per Eastern calendar day per browser (see client device id + API).
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_daily20_day_ip
   ON score_entries (day_key, ip_fingerprint)
   WHERE mode = 'daily20';

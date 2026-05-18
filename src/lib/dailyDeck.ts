@@ -24,6 +24,43 @@ export function getEasternDateKey(d = new Date()): string {
 /** Client: one Daily 20 attempt per browser per Eastern calendar day. */
 export const DAILY20_BROWSER_ATTEMPT_LS = "elemental.daily20.easternAttemptDate";
 
+/** Stable per-browser id for server-side “one scored Daily 20 per day” (not derived from IP). */
+export const DAILY20_BROWSER_DEVICE_LS = "elemental.daily20.deviceId";
+
+function readOrCreateDailyDeviceId(storage: Storage): string | null {
+  try {
+    let id = storage.getItem(DAILY20_BROWSER_DEVICE_LS);
+    if (
+      id &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    ) {
+      return id;
+    }
+    const next = crypto.randomUUID();
+    storage.setItem(DAILY20_BROWSER_DEVICE_LS, next);
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * UUID v4 persisted in localStorage (fallback: sessionStorage) for leaderboard duplicate checks.
+ * Empty string if no storage is available (caller should avoid submitting a scored daily in that case).
+ */
+export function getDaily20BrowserDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  return (
+    readOrCreateDailyDeviceId(localStorage) ??
+    (typeof sessionStorage !== "undefined"
+      ? readOrCreateDailyDeviceId(sessionStorage)
+      : null) ??
+    ""
+  );
+}
+
 export function readDaily20BrowserAttemptDate(): string | null {
   if (typeof window === "undefined") return null;
   try {

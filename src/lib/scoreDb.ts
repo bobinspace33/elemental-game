@@ -15,6 +15,14 @@ export function fingerprintIp(ip: string): string {
     .digest("hex");
 }
 
+/** Salted hash for Daily 20 duplicate rows (client `getDaily20BrowserDeviceId()`), distinct from {@link fingerprintIp}. */
+export function fingerprintDailyBrowserDevice(deviceId: string): string {
+  const salt = process.env.SCORE_IP_SALT ?? "eleMENTAL-dev-salt";
+  return createHash("sha256")
+    .update(`${salt}:daily20browser:${deviceId}`)
+    .digest("hex");
+}
+
 export function getRequestMeta(request: Request): {
   ip: string;
   country: string | null;

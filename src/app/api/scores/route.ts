@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getEasternDateKey } from "@/lib/dailyDeck";
 import {
   FULL_DECK_LEADER_KEY,
+  fingerprintDailyBrowserDevice,
   getRequestMeta,
   getSql,
 } from "@/lib/scoreDb";
@@ -16,6 +17,15 @@ function normalizeInitials(raw: unknown): string | null {
   const cleaned = raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
   if (cleaned.length < 1 || cleaned.length > 3) return null;
   return cleaned;
+}
+
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseDailyBrowserDeviceId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  return UUID_V4_RE.test(s) ? s : null;
 }
 
 export async function GET(request: Request) {
@@ -106,9 +116,17 @@ export async function POST(request: Request) {
         : getEasternDateKey();
 
     if (record) {
+      const deviceId = parseDailyBrowserDeviceId(o.dailyBrowserDeviceId);
+      if (!deviceId) {
+        return NextResponse.json(
+          { error: "Invalid or missing dailyBrowserDeviceId" },
+          { status: 400 },
+        );
+      }
+      const rowFingerprint = fingerprintDailyBrowserDevice(deviceId);
       const existing = await sql`
         SELECT id FROM score_entries
-        WHERE mode = 'daily20' AND day_key = ${dayKey} AND ip_fingerprint = ${fingerprint}
+        WHERE mode = 'daily20' AND day_key = ${dayKey} AND ip_fingerprint = ${rowFingerprint}
         LIMIT 1
       `;
       if (existing.length > 0) {
@@ -119,7 +137,7 @@ export async function POST(request: Request) {
       }
       await sql`
         INSERT INTO score_entries (mode, day_key, initials, score, ip_fingerprint, country_code)
-        VALUES ('daily20', ${dayKey}, ${initials}, ${score}, ${fingerprint}, ${country})
+        VALUES ('daily20', ${dayKey}, ${initials}, ${score}, ${rowFingerprint}, ${country})
       `;
     }
     return NextResponse.json({ ok: true, recorded: record, dayKey });

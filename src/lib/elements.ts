@@ -104,11 +104,20 @@ export function elementCardDisplayCategory(
   }
 }
 
-/** Hue angle (card palette, °) for rainbow-sorting category groups (e.g. scorecard exact hits). */
+/** Hue angle (card palette, °). For left-to-right rainbow strips use {@link elementCategoryRainbowSortKey}. */
 export function elementCategoryRainbowHue(cat: ElementCategory): number {
   const disp = elementCardDisplayCategory(cat);
   if (disp === "unknown") return 999;
   return CATEGORY_HUE_BASE[disp];
+}
+
+/** Sort key along the hue wheel so alkali reds sit leftmost (raw ° sorts 356 after 26). */
+export function elementCategoryRainbowSortKey(cat: ElementCategory): number {
+  const disp = elementCardDisplayCategory(cat);
+  if (disp === "unknown") return 1000;
+  const h = CATEGORY_HUE_BASE[disp];
+  const RED_LEFT_ANCHOR = 350;
+  return (h - RED_LEFT_ANCHOR + 360) % 360;
 }
 
 function cardHueMid(disp: Exclude<CardDisplayCategory, "unknown">): number {
@@ -377,6 +386,23 @@ export const ELEMENTS: ElementDef[] = [
 export const ELEMENTS_BY_Z: Record<number, ElementDef> = Object.fromEntries(
   ELEMENTS.map((el) => [el.z, el]),
 );
+
+/** Deduped exact-hit Z indices: ascending Z within category; categories in rainbow order (red alkali left). */
+export function orderedExactZs(zs: readonly number[]): number[] {
+  const uniq = [...new Set(zs)].filter((z) => ELEMENTS_BY_Z[z]);
+  const byCat = new Map<ElementCategory, number[]>();
+  for (const z of uniq) {
+    const el = ELEMENTS_BY_Z[z]!;
+    const arr = byCat.get(el.category) ?? [];
+    arr.push(z);
+    byCat.set(el.category, arr);
+  }
+  for (const arr of byCat.values()) arr.sort((a, b) => a - b);
+  const cats = [...byCat.keys()].sort(
+    (a, b) => elementCategoryRainbowSortKey(a) - elementCategoryRainbowSortKey(b),
+  );
+  return cats.flatMap((c) => byCat.get(c)!);
+}
 
 // All cells (row, col) that should render an element slot. Other cells in the
 // 10x18 grid are gaps in the rendered table.

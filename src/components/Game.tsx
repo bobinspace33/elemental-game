@@ -29,6 +29,7 @@ import {
 } from "@/lib/challenges";
 import {
   buildDaily20DeckNumbers,
+  getDaily20BrowserDeviceId,
   getEasternDateKey,
   markDaily20BrowserAttempt,
   pickDailyBonusZs,
@@ -633,7 +634,7 @@ export function Game() {
   const handleClosePicker = useCallback(() => setShowPicker(false), []);
 
   const handleModePick = useCallback(
-    async (mode: MenuMode) => {
+    (mode: MenuMode) => {
       if (mode === "practice") {
         setDailyAlreadyModal(null);
         beginRound("daily20Practice");
@@ -644,20 +645,10 @@ export function Game() {
         beginRound("fullDeck");
         return;
       }
-      try {
-        const dk = getEasternDateKey();
-        if (readDaily20BrowserAttemptDate() === dk) {
-          setDailyAlreadyModal({ variant: "browser", allowUnrecorded: false });
-          return;
-        }
-        const r = await fetch(`/api/scores/check-daily?date=${encodeURIComponent(dk)}`);
-        const j = (await r.json()) as { played?: boolean; db?: boolean };
-        if (j.played && j.db) {
-          setDailyAlreadyModal({ variant: "server", allowUnrecorded: true });
-          return;
-        }
-      } catch {
-        // offline or API error — allow normal daily start
+      const dk = getEasternDateKey();
+      if (readDaily20BrowserAttemptDate() === dk) {
+        setDailyAlreadyModal({ variant: "browser", allowUnrecorded: false });
+        return;
       }
       dailyUnrecordedForNextRoundRef.current = false;
       setDailyAlreadyModal(null);
@@ -745,6 +736,9 @@ export function Game() {
           score: state.score,
           dailyDateKey: state.dailyDateKey,
           record,
+          ...(state.mode === "daily20" && record
+            ? { dailyBrowserDeviceId: getDaily20BrowserDeviceId() }
+            : {}),
         }),
       });
       const j = (await res.json()) as { error?: string };

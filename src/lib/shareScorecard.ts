@@ -1,4 +1,4 @@
-import { ELEMENTS_BY_Z, elementCardGradientStops } from "@/lib/elements";
+import { ELEMENTS_BY_Z, elementCardGradientStops, orderedExactZs } from "@/lib/elements";
 
 export function formatDailyDateSubtitle(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map((x) => parseInt(x, 10));
@@ -18,9 +18,11 @@ export function buildDailySharePlainText(params: {
   score: number;
   dateKey: string;
   exactZs: readonly number[];
+  /** When set (e.g. `window.location.origin`), appended so rich paste can offer a tappable link. */
+  playUrl?: string;
 }): string {
   const sub = formatDailyDateSubtitle(params.dateKey);
-  return [
+  const lines = [
     `eleMENTAL — ${sub}`,
     "",
     `I scored ${params.score.toLocaleString()} on today's eleMENTAL quiz!`,
@@ -28,7 +30,11 @@ export function buildDailySharePlainText(params: {
     params.exactZs.length > 0
       ? `Exact placements: ${params.exactZs.length}`
       : "Exact placements: 0",
-  ].join("\n");
+  ];
+  if (params.playUrl) {
+    lines.push("", params.playUrl);
+  }
+  return lines.join("\n");
 }
 
 function roundRectPath(
@@ -70,6 +76,7 @@ export function renderDailyShareScorecardPng(
   const s = Math.max(1, scale ?? 2);
   const bonus =
     params.bonusZs instanceof Set ? params.bonusZs : new Set(params.bonusZs);
+  const exactZsOrdered = orderedExactZs(params.exactZs);
 
   const W = 720;
   const outerPad = 24;
@@ -83,8 +90,8 @@ export function renderDailyShareScorecardPng(
   const tileRadius = 10;
   const cols = Math.max(1, Math.floor((innerW + tileGap) / (tileW + tileGap)));
   const tileRows =
-    params.exactZs.length === 0 ? 0 : Math.ceil(params.exactZs.length / cols);
-  const emptyRowH = params.exactZs.length === 0 ? 28 : 0;
+    exactZsOrdered.length === 0 ? 0 : Math.ceil(exactZsOrdered.length / cols);
+  const emptyRowH = exactZsOrdered.length === 0 ? 28 : 0;
 
   const headerH = 52;
   const gapAfterHeader = 18;
@@ -93,7 +100,7 @@ export function renderDailyShareScorecardPng(
   const framePadY = 14;
   const tilesBlockH =
     tileRows > 0 ? tileRows * (tileH + tileGap) - tileGap + framePadY * 2 : 0;
-  const emptyPad = params.exactZs.length === 0 ? framePadY * 2 + emptyRowH : 0;
+  const emptyPad = exactZsOrdered.length === 0 ? framePadY * 2 + emptyRowH : 0;
 
   const cardH =
     cardPad +
@@ -203,12 +210,12 @@ export function renderDailyShareScorecardPng(
   const tilesOriginX = frameX + framePadY;
   const tilesOriginY = frameY + framePadY;
 
-  if (params.exactZs.length === 0) {
+  if (exactZsOrdered.length === 0) {
     ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillStyle = "#94a3b8";
     ctx.fillText("No exact placements this round.", tilesOriginX, tilesOriginY + 4);
   } else {
-    params.exactZs.forEach((z, i) => {
+    exactZsOrdered.forEach((z, i) => {
       const el = ELEMENTS_BY_Z[z];
       if (!el) return;
       const col = i % cols;
@@ -243,7 +250,8 @@ export async function copyDailyShareToClipboard(params: {
   exactZs: readonly number[];
   bonusZs: ReadonlySet<number> | readonly number[];
 }): Promise<void> {
-  const text = buildDailySharePlainText(params);
+  const playUrl = typeof window !== "undefined" ? window.location.origin : undefined;
+  const text = buildDailySharePlainText({ ...params, playUrl });
 
   try {
     const png = await renderDailyShareScorecardPng(params, 2);
